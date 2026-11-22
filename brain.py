@@ -6,8 +6,13 @@ import config, memory, tools
 SISTEMA = (
     "Eres Jarvis, el asistente personal del usuario en su PC con Windows. Responde siempre en español, "
     "MUY breve (1 o 2 frases), porque tus respuestas se leen en voz alta. "
-    "Cuando el usuario pida una acción (abrir apps o archivos, crear proyectos, documentos, agendar, recordar), "
+    "Cuando el usuario pida una acción (ver la pantalla, abrir o cerrar apps, instalar una app, abrir archivos, crear proyectos o documentos, agendar o recordar), "
     "usa las herramientas y nunca digas que hiciste algo sin haberlo hecho con una herramienta. "
+    "Cierra una aplicación solo si el usuario pidió cerrarla. Instala una aplicación solo si el usuario lo pidió explícitamente; "
+    "la instalación está limitada a WinGet y al usuario actual. Nunca instales herramientas o archivos del sistema. "
+    "No modifiques archivos que el usuario no haya indicado; nunca escribas, borres ni instales nada dentro de Windows o carpetas del sistema. "
+    "Si el mensaje incluye una captura de pantalla, analízala directamente y responde sobre lo que ves; nunca digas que no tienes acceso a la pantalla cuando la imagen está adjunta. "
+    "La captura solo se toma para responder a una petición del usuario, se conserva en memoria durante la consulta y no se guarda como archivo. "
     "Si una herramienta falla o no encuentra algo, prueba otra antes de rendirte: por ejemplo, si no es una app "
     "puede ser un sitio web (abrir_url) o un archivo (abrir_archivo). "
     "Zona horaria: America/Bogota. Para agendar usa fechas ISO 8601 sin zona, por ejemplo 2026-11-22T15:00:00. "
@@ -22,11 +27,21 @@ SISTEMA = (
 # El envío de correos exige una confirmación explícita del usuario en SU mensaje (no basta con que el modelo la dé por hecha)
 _AFIRMA = re.compile(r"\b(sí|confirmo|confirma|confírmalo|envíalo|envialo|enviarlo|adelante|dale)\b")
 _SOLO_SI = {"si", "ok", "listo", "claro", "dale", "envíalo", "envialo"}
+_PANTALLA = re.compile(r"\b(pantalla|monitor|escritorio)\b", re.I)
+_ACCION_VISUAL = re.compile(
+    r"\b(mira|mirar|ve|ver|vea|ves|observa|revisa|lee|leer|describe|describir|analiza|analizar|"
+    r"captura|muestra|mu[eé]strame|mu[eé]stralo|ens[eé]ñame|qu[eé](?:\s+(?:hay|aparece|se\s+ve|dice|tengo))?)\b", re.I
+)
 
 
 def _confirmado(texto: str) -> bool:
     t = texto.lower().strip(" .,!¡")
     return bool(_AFIRMA.search(t)) or t in _SOLO_SI
+
+
+def _pide_pantalla(texto: str) -> bool:
+    """Detecta una petición explícita de leer o describir la pantalla actual."""
+    return bool(_PANTALLA.search(texto) and _ACCION_VISUAL.search(texto))
 
 
 def _mensajes(texto: str) -> list:
@@ -48,19 +63,53 @@ def responder(texto: str) -> str:
             return out
 
     msgs = _mensajes(texto)
+    pantalla_en_contexto = _pide_pantalla(texto)
+    if pantalla_en_contexto:
+        captura = tools.capturar_pantalla()
+        if captura.startswith("ERROR_CAPTURA:"):
+            out = captura.removeprefix("ERROR_CAPTURA: ").strip()
+            memory.guardar_chat("user", texto); memory.guardar_chat("assistant", out)
+            return out
+        if getattr(config, "PROVEEDOR_ACTUAL", "local") == "local":
+            msgs[-1] = {"role": "user", "content": texto, "images": [captura]}
+        else:
+            msgs[-1] = {"role": "user", "content": [
+                {"type": "text", "text": texto},
+                {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + captura}},
+            ]}
     try:
         for _ in range(6):  # máximo 6 rondas de herramientas
-            payload = {
-                "model": config.MODEL, "messages": msgs, "tools": tools.seleccionar(texto), "stream": False,
-                "keep_alive": "30m", "options": {"num_ctx": 6144},
-                "think": False,  # sin "pensar" largo: mucho más rápido en CPU
-            }
-            r = requests.post(config.OLLAMA_URL, json=payload, timeout=300)
-            if r.status_code == 400 and "think" in r.text.lower():  # modelo sin modo de pensamiento
-                payload.pop("think")
+            proveedor = getattr(config, "PROVEEDOR_ACTUAL", "local")
+            herramientas = tools.seleccionar(texto)
+            if proveedor in ("gemini", "groq"):
+                if proveedor == "gemini":
+                    url, key, model = ("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+                                       config.GEMINI_API_KEY, config.GEMINI_MODEL)
+                else:
+                    url, key, model = ("https://api.groq.com/openai/v1/chat/completions",
+                                       config.GROQ_API_KEY,
+                                       config.GROQ_VISION_MODEL if pantalla_en_contexto else config.GROQ_MODEL)
+                payload = {"model": model, "messages": msgs, "tools": herramientas, "tool_choice": "auto"}
+                if proveedor == "groq":
+                    payload["reasoning_effort"] = "low"
+                elif proveedor == "gemini":
+                    payload["reasoning_effort"] = "low"
+                r = requests.post(url, headers={"Authorization": f"Bearer {key}"}, json=payload, timeout=90)
+            else:
+                payload = {
+                    "model": config.MODEL, "messages": msgs, "tools": herramientas, "stream": False,
+                    "keep_alive": "30m", "options": {"num_ctx": 6144}, "think": False,
+                }
                 r = requests.post(config.OLLAMA_URL, json=payload, timeout=300)
+                if r.status_code == 400 and "think" in r.text.lower():
+                    payload.pop("think")
+                    r = requests.post(config.OLLAMA_URL, json=payload, timeout=300)
             r.raise_for_status()
-            m = r.json()["message"]
+            m = r.json()["choices"][0]["message"] if proveedor in ("gemini", "groq") else r.json()["message"]
+            # Gemini OpenAI compatibility may return null content for tool-only turns;
+            # its next request requires a string in the assistant message.
+            if proveedor == "gemini" and m.get("tool_calls") and m.get("content") is None:
+                m["content"] = "[Llamada a herramienta]"
             msgs.append(m)
             llamadas = m.get("tool_calls")
             if not llamadas:
@@ -78,13 +127,26 @@ def responder(texto: str) -> str:
                         res = tools.REGISTRY[nombre](**args)
                 except Exception as e:
                     res = f"Error en {nombre}: {e}"
-                msgs.append({"role": "tool", "content": str(res)})
+                tool_msg = {"role": "tool", "content": str(res)}
+                if proveedor in ("gemini", "groq"):
+                    tool_msg.update({"tool_call_id": c.get("id", ""), "name": nombre})
+                msgs.append(tool_msg)
         else:
             out = "Me quedé sin pasos para completar eso."
     except requests.ConnectionError:
-        out = "No puedo conectar con Ollama. ¿Está abierto? Ejecuta 'ollama serve'."
+        proveedor = getattr(config, "PROVEEDOR_ACTUAL", "local")
+        out = "No puedo conectar con Ollama. ¿Está abierto? Ejecuta ollama serve." if proveedor == "local" else f"No pude conectar con la API de {proveedor.title()}. Revisa tu conexión."
     except requests.HTTPError as e:
-        out = f"Ollama respondió con error ({e.response.status_code}). Revisa que el modelo '{config.MODEL}' exista con 'ollama list'."
+        proveedor = getattr(config, "PROVEEDOR_ACTUAL", "local")
+        if proveedor == "local":
+            out = f"Ollama respondió con error ({e.response.status_code}). Revisa que el modelo '{config.MODEL}' exista con ollama list."
+        else:
+            try:
+                detalle = e.response.json().get("error", {}).get("message", "")
+            except Exception:
+                detalle = e.response.text[:300]
+            sufijo = f": {detalle[:300]}" if detalle else ". Revisa la clave, el modelo y el límite de uso."
+            out = f"La API de {proveedor.title()} respondió con error ({e.response.status_code}){sufijo}"
     except Exception as e:
         out = f"Error: {e}"
     memory.guardar_chat("user", texto); memory.guardar_chat("assistant", out)

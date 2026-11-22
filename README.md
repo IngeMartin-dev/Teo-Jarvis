@@ -7,11 +7,22 @@
 3. Con el entorno activo: `python -m pip install -r requirements.txt`
 4. Ejecuta: `python main.py`
 
+## Elegir el motor de IA
+Al iniciar Jarvis aparece una ventana para elegir **Local (Ollama)**, **Gemini** o **Groq**. La selección se hace en cada inicio.
+
+- Gemini: crea una clave en [Google AI Studio](https://aistudio.google.com/apikey). Jarvis usa `gemini-3.8-flash`, con uso gratis y capacidades para agentes. Los modelos Gemini 2.5 tienen acceso restringido para proyectos nuevos.
+- Groq: crea una clave en [Groq Console](https://console.groq.com/keys) usando el plan **Free**. Jarvis usa `openai/gpt-oss-20b`, disponible con llamadas a herramientas. El plan Free tiene límites de uso; si los alcanzas, la API rechaza solicitudes. No cambies al plan Developer si quieres mantenerlo gratis.
+- Al elegir un proveedor API por primera vez, Jarvis pide la clave y la guarda en `.env`, que está excluido de Git. También puedes copiar `.env.example` a `.env` y pegar ambas claves allí; así ya podrás alternar entre ellas en la ventana inicial.
+
+Las claves son independientes: `GEMINI_API_KEY` y `GROQ_API_KEY`. No compartas ni subas `.env` al repositorio.
+
 ## Novedades
 - **Conversación continua**: dices «Hola Jarvis» una vez y sigue escuchando sin repetirlo. Para terminar: «adiós Jarvis», «eso es todo» o «descansa». Si quieres que vuelva solo a reposo tras X segundos de silencio, pon `CONVERSATION_TIMEOUT = 120` en `config_local.py`.
 - **Orbe animado** en la esquina inferior derecha, sobre la barra de Windows: azul = escuchando, ámbar = pensando, verde = hablando. Clic en el orbe abre el chat.
-- **Abre cualquier app o juego instalado** por nombre (menú Inicio, escritorio, Steam, apps de la Tienda). Si instalas algo nuevo y no lo encuentra, lo reindexa solo.
-- **Archivos**: buscar, abrir, listar, leer (txt, código, docx) y crear carpetas en todo tu PC, excepto Windows, Program Files, ProgramData, AppData y claves (.ssh). No borra ni mueve archivos ni ejecuta comandos libres, a propósito.
+- **Abre y cierra aplicaciones** por nombre. Solo cierra procesos de tu sesión y protege los procesos de Windows.
+- **Instala aplicaciones a petición** usando WinGet, desde su fuente oficial, con ámbito de usuario y sin elevar permisos. Si el paquete exige instalarse para todo el equipo, Jarvis lo rechaza.
+- **Ve la pantalla a petición**: si preguntas qué aparece o pides leerla, toma una captura temporal en memoria y la analiza con el proveedor activo. Con Groq usa Qwen 3.8 27B, compatible con imágenes y herramientas. No guarda capturas ni interactúa con la pantalla.
+- **Archivos**: buscar, abrir, listar, leer (txt, código, docx) y crear carpetas en tus carpetas de usuario; protege Windows, Program Files, ProgramData, AppData y claves (.ssh). No borra ni mueve archivos ni ejecuta comandos arbitrarios.
 - **Excel**: `crear_excel` y `agregar_fila_excel` (agenda.xlsx en Documentos\Jarvis).
 
 ## Google: Calendar + Gmail + Drive (paso a paso, una sola autorización)

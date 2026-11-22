@@ -5,6 +5,15 @@ junto a este y pon ahí solo las líneas que quieras cambiar, por ejemplo:
 Así, si actualizas Jarvis, no pierdes tu configuración.
 """
 from pathlib import Path
+import os
+
+_ENV_FILE = Path(__file__).with_name(".env")
+if _ENV_FILE.exists():
+    for _line in _ENV_FILE.read_text(encoding="utf-8-sig").splitlines():
+        _line = _line.strip()
+        if _line and not _line.startswith("#") and "=" in _line:
+            _name, _value = _line.split("=", 1)
+            os.environ.setdefault(_name.strip(), _value.strip().strip("\"'"))
 
 HOME = Path.home()
 DATA_DIR = HOME / ".jarvis"
@@ -13,6 +22,11 @@ DATA_DIR.mkdir(exist_ok=True)
 # --- Cerebro (Ollama local) ---
 OLLAMA_URL = "http://localhost:11434/api/chat"
 MODEL = "qwen3.5:4b"          # tu modelo de Ollama (mira `ollama list`)
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+GEMINI_MODEL = "gemini-3.8-flash"
+GROQ_MODEL = "openai/gpt-oss-20b"
+GROQ_VISION_MODEL = "qwen/qwen3.8-27b"
 TIMEZONE = "America/Bogota"
 
 # --- Voz ---
@@ -56,6 +70,6 @@ APPS = {
 }
 
 try:
-    from config_local import *  # noqa: F401,F403  (tus cambios personales)
+    from config_local import *  # type: ignore  # noqa: F401,F403
 except ImportError:
     pass

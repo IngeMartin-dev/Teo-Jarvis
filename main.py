@@ -2,10 +2,11 @@
 import ctypes, math, threading, time, tkinter as tk
 from ctypes import wintypes
 from tkinter import scrolledtext
+from pathlib import Path
 import pystray
 from PIL import Image, ImageDraw
 
-import brain, voice
+import brain, voice, config
 
 try:  # coordenadas correctas en pantallas con escalado
     ctypes.windll.shcore.SetProcessDpiAwareness(1)
@@ -18,6 +19,91 @@ root.title("Jarvis")
 root.geometry("420x520")
 root.configure(bg="#0b1220")
 root.withdraw()  # arranca oculto en la bandeja
+
+
+def elegir_proveedor():
+    """Pide el modo de IA antes de iniciar escucha y bandeja."""
+    ventana = tk.Toplevel(root)
+    ventana.title("Iniciar Jarvis")
+    ventana.geometry("390x205")
+    ventana.resizable(False, False)
+    ventana.configure(bg="#0b1220")
+    # La ventana raíz empieza oculta; no hacerla transient de esa raíz porque
+    # Windows puede ocultarla junto con su padre antes de que arranque mainloop.
+    ventana.attributes("-topmost", True)
+    tk.Label(ventana, text="¿Cómo quieres iniciar Jarvis?", bg="#0b1220", fg="white",
+             font=("Segoe UI", 13, "bold")).pack(pady=(24, 16))
+    tk.Label(ventana, text="Puedes cambiar esta opción cada vez que lo abras.", bg="#0b1220",
+             fg="#94a3b8", font=("Segoe UI", 9)).pack(pady=(0, 14))
+    fila = tk.Frame(ventana, bg="#0b1220")
+    fila.pack()
+    elegido = {"valor": None}
+
+    def seleccionar(nombre):
+        elegido["valor"] = nombre
+        ventana.destroy()
+
+    for nombre, etiqueta in (("local", "Local (Ollama)"), ("gemini", "Gemini"), ("groq", "Groq")):
+        tk.Button(fila, text=etiqueta, command=lambda n=nombre: seleccionar(n), width=13,
+                  bg="#111a2e", fg="white", activebackground="#164e63", relief="flat",
+                  padx=5, pady=9).pack(side="left", padx=5)
+    ventana.protocol("WM_DELETE_WINDOW", lambda: seleccionar("local"))
+    ventana.update_idletasks()
+    ventana.deiconify()
+    ventana.lift()
+    ventana.focus_force()
+    ventana.grab_set()
+    root.wait_window(ventana)
+    proveedor = elegido["valor"] or "local"
+    if proveedor in ("gemini", "groq"):
+        atributo = "GEMINI_API_KEY" if proveedor == "gemini" else "GROQ_API_KEY"
+        if not getattr(config, atributo, ""):
+            dialogo = tk.Toplevel(root)
+            dialogo.title(f"Clave API de {proveedor.title()}")
+            dialogo.geometry("430x160")
+            dialogo.resizable(False, False)
+            dialogo.configure(bg="#0b1220")
+            dialogo.attributes("-topmost", True)
+            tk.Label(dialogo, text=f"Pega tu clave de {proveedor.title()}:", bg="#0b1220",
+                     fg="white", font=("Segoe UI", 11, "bold")).pack(pady=(18, 10))
+            campo = tk.Entry(dialogo, show="*", width=48, bg="#111a2e", fg="white",
+                             insertbackground="white")
+            campo.pack(padx=16, ipady=5)
+            resultado = {"clave": None}
+            botones = tk.Frame(dialogo, bg="#0b1220")
+            botones.pack(pady=14)
+
+            def aceptar_clave():
+                resultado["clave"] = campo.get().strip() or None
+                dialogo.destroy()
+
+            tk.Button(botones, text="Guardar clave", command=aceptar_clave, bg="#164e63",
+                      fg="white", relief="flat", padx=12, pady=6).pack(side="left", padx=5)
+            tk.Button(botones, text="Usar local", command=dialogo.destroy, bg="#111a2e",
+                      fg="white", relief="flat", padx=12, pady=6).pack(side="left", padx=5)
+            dialogo.protocol("WM_DELETE_WINDOW", dialogo.destroy)
+            dialogo.update_idletasks()
+            dialogo.deiconify()
+            dialogo.lift()
+            campo.focus_set()
+            dialogo.grab_set()
+            root.wait_window(dialogo)
+            clave = resultado["clave"]
+            if not clave:
+                proveedor = "local"
+            else:
+                setattr(config, atributo, clave.strip())
+                ruta_env = Path(__file__).with_name(".env")
+                lineas = ruta_env.read_text(encoding="utf-8").splitlines() if ruta_env.exists() else []
+                prefijo = atributo + "="
+                lineas = [l for l in lineas if not l.strip().startswith(prefijo)]
+                lineas.append(f"{atributo}={clave.strip()}")
+                ruta_env.write_text("\n".join(lineas) + "\n", encoding="utf-8")
+    config.PROVEEDOR_ACTUAL = proveedor
+    return proveedor
+
+
+PROVEEDOR_ACTUAL = elegir_proveedor()
 
 log = scrolledtext.ScrolledText(root, bg="#0b1220", fg="#7dd3fc", font=("Consolas", 10), wrap="word", state="disabled")
 log.pack(fill="both", expand=True, padx=8, pady=(8, 4))

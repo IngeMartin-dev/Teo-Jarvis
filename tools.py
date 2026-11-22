@@ -1,5 +1,5 @@
 """Herramientas que Jarvis puede ejecutar en tu PC."""
-import os, re, shutil, subprocess, time, webbrowser
+import base64, io, json, os, re, shutil, subprocess, time, webbrowser
 from datetime import datetime
 from pathlib import Path
 import apps_index, config, memory
@@ -25,6 +25,120 @@ def abrir_app(nombre: str) -> str:
         return msg + " Si es un sitio web usa abrir_url; si es un archivo o carpeta usa abrir_archivo."
     except Exception as e:
         return f"No pude abrir {nombre}: {e}"
+
+
+_PROCESOS_SISTEMA = {
+    "applicationframehost", "csrss", "dwm", "explorer", "fontdrvhost", "lsass",
+    "memory compression", "registry", "runtimebroker", "searchhost", "services",
+    "shellexperiencehost", "smss", "spoolsv", "startmenuexperiencehost", "svchost",
+    "system", "taskhostw", "wininit", "winlogon",
+}
+
+
+def cerrar_app(nombre: str) -> str:
+    """Cierra la app indicada, solo en la sesión del usuario actual; nunca procesos de Windows."""
+    q = apps_index._norm(nombre.strip())
+    if not q:
+        return "Dime qué aplicación quieres cerrar."
+    if q in _PROCESOS_SISTEMA:
+        return "No puedo cerrar procesos de Windows."
+    ps = ("$ErrorActionPreference='SilentlyContinue'; "
+          "$sid=(Get-Process -Id $PID).SessionId; "
+          "Get-Process | Where-Object {$_.SessionId -eq $sid} "
+          "| Select-Object Id,ProcessName,Path,SessionId | ConvertTo-Json -Compress")
+    try:
+        r = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", ps],
+                           capture_output=True, timeout=20,
+                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        if r.returncode != 0:
+            return "No pude consultar las aplicaciones abiertas."
+        data = json.loads(r.stdout.decode("utf-8-sig", "replace") or "[]")
+        if isinstance(data, dict):
+            data = [data]
+    except Exception as e:
+        return f"No pude consultar las aplicaciones abiertas: {e}"
+
+    nombres = {q}
+    aliases = {"visual studio code": "code", "vscode": "code", "google chrome": "chrome",
+               "microsoft edge": "msedge", "bloc de notas": "notepad", "calculadora": "calculatorapp",
+               "discord": "discord discordcanary discordptb discorddevelopment"}
+    if q in aliases:
+        nombres.update(apps_index._norm(aliases[q]).split())
+    pids = []
+    for p in data:
+        proc = apps_index._norm(p.get("ProcessName", ""))
+        if proc in _PROCESOS_SISTEMA:
+            continue
+        ruta = str(p.get("Path") or "").casefold()
+        windows = os.environ.get("SystemRoot", r"C:\Windows").casefold().rstrip("\\")
+        if ruta and (ruta == windows or ruta.startswith(windows + "\\")):
+            continue
+        if proc in nombres:
+            try:
+                pids.append(int(p["Id"]))
+            except (KeyError, TypeError, ValueError):
+                pass
+    if not pids:
+        return f"No encontré {nombre} abierta en tu sesión."
+
+    cerrados, errores = 0, []
+    for pid in sorted(set(pids)):
+        try:
+            fin = subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True,
+                                 text=True, timeout=10,
+                                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            if fin.returncode == 0:
+                cerrados += 1
+            else:
+                errores.append(fin.stderr.strip() or fin.stdout.strip())
+        except Exception as e:
+            errores.append(str(e))
+    if cerrados:
+        return f"Cerré {nombre}."
+    return f"No pude cerrar {nombre}: {(errores[0] if errores else 'proceso protegido o sin permisos')[:180]}"
+
+
+def instalar_app(nombre: str) -> str:
+    """Instala por nombre exacto desde WinGet, solo para el usuario actual y sin elevar permisos."""
+    nombre = nombre.strip()
+    if not nombre or len(nombre) > 100 or any(ord(c) < 32 for c in nombre):
+        return "Dime el nombre exacto de la aplicación que quieres instalar."
+    winget = shutil.which("winget") or str(Path(os.environ.get("LOCALAPPDATA", "")) /
+                                              "Microsoft/WindowsApps/winget.exe")
+    if not Path(winget).exists():
+        return "No encuentro WinGet. Instala o actualiza 'Instalador de aplicación' desde Microsoft Store."
+    cmd = [winget, "install", "--name", nombre, "--exact", "--source", "winget", "--scope", "user",
+           "--accept-source-agreements", "--accept-package-agreements", "--disable-interactivity"]
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                           timeout=900, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    except subprocess.TimeoutExpired:
+        return f"La instalación de {nombre} superó el tiempo límite. Revisa si WinGet sigue trabajando."
+    except Exception as e:
+        return f"No pude instalar {nombre}: {e}"
+    salida = (r.stdout + "\n" + r.stderr).strip()
+    if r.returncode == 0:
+        try:
+            apps_index.cargar(forzar=True)
+        except Exception:
+            pass
+        return f"Instalé {nombre} para tu usuario."
+    return (f"No instalé {nombre}. WinGet no encontró una coincidencia exacta, hubo varias, "
+            "o el paquete no admite instalación por usuario. No hice una instalación para todo el equipo. "
+            + salida[-300:])
+
+
+def capturar_pantalla() -> str:
+    """Captura pantallas actuales en memoria y devuelve JPEG base64; nunca guarda una imagen en disco."""
+    try:
+        from PIL import ImageGrab
+        imagen = ImageGrab.grab(all_screens=True)
+        imagen.thumbnail((1600, 1600))
+        buffer = io.BytesIO()
+        imagen.convert("RGB").save(buffer, format="JPEG", quality=75, optimize=True)
+        return base64.b64encode(buffer.getvalue()).decode("ascii")
+    except Exception as e:
+        return f"ERROR_CAPTURA: No pude capturar la pantalla: {e}"
 
 
 def abrir_url(url: str) -> str:
@@ -290,6 +404,8 @@ S = {"type": "string"}
 I = {"type": "integer"}
 TOOLS_SPEC = [
     _t("abrir_app", "Abre cualquier aplicación o juego instalado en el PC por su nombre (Roblox, Spotify, Steam, Discord...)", {"nombre": S}, ["nombre"]),
+    _t("cerrar_app", "Cierra la aplicación indicada si está abierta. Usa esto solo cuando el usuario pida cerrar esa aplicación. No cierra procesos de Windows.", {"nombre": S}, ["nombre"]),
+    _t("instalar_app", "Instala la aplicación que el usuario pidió explícitamente, desde WinGet, solo para su usuario. No instala paquetes de sistema ni ejecuta comandos arbitrarios.", {"nombre": S}, ["nombre"]),
     _t("abrir_url", "Abre una página web en el navegador", {"url": S}, ["url"]),
     _t("ejecutar_rutina", "Ejecuta una rutina guardada, p. ej. 'inicia mi día'", {"nombre": S}, ["nombre"]),
     _t("abrir_archivo", "Abre un archivo o carpeta del PC por nombre o ruta completa", {"nombre_o_ruta": S}, ["nombre_o_ruta"]),
@@ -325,7 +441,7 @@ REGISTRY.update(tools_google.REGISTRY)
 
 
 # ---------- Selección de herramientas por tema (menos tokens = respuestas más rápidas) ----------
-_BASE = {"abrir_app", "abrir_url", "ejecutar_rutina", "recordar", "olvidar", "hora_actual"}
+_BASE = {"abrir_app", "cerrar_app", "instalar_app", "abrir_url", "ejecutar_rutina", "recordar", "olvidar", "hora_actual"}
 _GRUPOS = [
     (("correo", "mail", "gmail", "drive", "agenda", "calendar", "calendario", "reunión", "reunion",
       "evento", "agend", "plan", "cita", "envía", "envia", "enviar"),
