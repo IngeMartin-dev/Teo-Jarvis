@@ -449,6 +449,11 @@ import tools_codigo
 TOOLS_SPEC += tools_codigo.SPEC
 REGISTRY.update(tools_codigo.REGISTRY)
 
+# ---------- Discord (envío inmediato, sin confirmación) ----------
+import tools_discord
+TOOLS_SPEC += tools_discord.SPEC
+REGISTRY.update(tools_discord.REGISTRY)
+
 
 # ---------- Selección de herramientas por tema (menos tokens = respuestas más rápidas) ----------
 _BASE = {"abrir_app", "cerrar_app", "instalar_app", "buscar_en_tienda", "instalar_desde_tienda", "abrir_tienda",
@@ -470,6 +475,8 @@ _GRUPOS = [
       "bug", "corrige", "arregla", "refactor", "script", "archivo", ".py", ".js", ".html", ".css", ".json", ".ts"),
      {"listar_proyecto", "leer_codigo", "escribir_codigo", "editar_codigo", "agregar_al_final", "buscar_en_codigo",
       "abrir_en_vscode", "deshacer_cambio", "crear_proyecto", "subir_cambios"}),
+    (("discord", "dc ", "canal", "servidor"),
+     {"enviar_discord"}),
     (("tienda", "store", "instala", "descarga", "descargar"),
      {"abrir_tienda", "buscar_en_tienda", "instalar_desde_tienda"}),
     (("whatsapp", "wasap", "mensaje a", "mándale", "mandale", "escríbele", "escribele", "dile a"),

@@ -71,3 +71,10 @@ Con **Groq** elegido, si un modelo responde 429 (límite gratuito), Jarvis pasa 
 - Cualquier otro error (400, 401...) **no cambia de modelo**: se muestra tal cual; los 5xx y fallos de red se reintentan hasta 3 veces con el mismo modelo.
 - Con Groq elegido no se salta a otros proveedores: la cadena entre proveedores solo aplica a los demás.
 - Para ver la pantalla se usan solo los modelos de `GROQ_VISION_MODELS`.
+
+## Discord (se envía de inmediato, sin pedir confirmación)
+- «Jarvis, mándale a general en Discord que ya subí el avance» o «escríbele a Juan por Discord que llego en 10 minutos».
+- **Canales de servidor (recomendado, el más fiable):** crea un webhook (Ajustes del canal → Integraciones → Webhooks → Nuevo webhook → Copiar URL) y pégalo en `.env` con el nombre del canal: `DISCORD_WEBHOOK_GENERAL=https://discord.com/api/webhooks/...`. Un webhook solo sirve para ese canal y no puede leer nada; los mensajes salen sin menciones (@everyone, @usuario) por seguridad.
+- **Mensajes directos y cualquier otro canal:** usa Discord Desktop (Ctrl+K), así que debe estar instalado con la sesión iniciada. Antes de escribir **comprueba por el título de la ventana que se abrió el chat correcto**; si no puede comprobarlo, no envía y te lo dice.
+- **Confirmación:** solo Discord se envía sin preguntar. WhatsApp y correo siguen pidiendo tu «sí».
+- Opciones en `config_local.py`: `PERMISOS = {"discord": False}` lo apaga; `DISCORD_VERIFICAR_TITULO = False` desactiva la comprobación del título (solo si tu Discord no muestra el nombre del chat en la ventana).
