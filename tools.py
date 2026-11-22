@@ -316,3 +316,9 @@ TOOLS_SPEC = [
     _t("hora_actual", "Devuelve fecha y hora actuales", {}, []),
 ]
 REGISTRY = {f["function"]["name"]: globals()[f["function"]["name"]] for f in TOOLS_SPEC}
+
+
+# ---------- Google: Gmail, Drive y plan del día ----------
+import tools_google
+TOOLS_SPEC += tools_google.SPEC
+REGISTRY.update(tools_google.REGISTRY)
