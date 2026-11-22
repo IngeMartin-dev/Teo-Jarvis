@@ -86,10 +86,11 @@ def responder(texto: str) -> str:
                 {"type": "text", "text": texto},
                 {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + captura}},
             ]}
+    usar_todas = False  # si el modelo pide una herramienta que no enviamos, reintenta con todas
     try:
-        for _ in range(6):  # máximo 6 rondas de herramientas
+        for _ in range(8):  # máximo 8 rondas (alguna puede ser un reintento con todas las herramientas)
             proveedor = getattr(config, "PROVEEDOR_ACTUAL", "local")
-            herramientas = tools.seleccionar(texto)
+            herramientas = tools.TOOLS_SPEC if usar_todas else tools.seleccionar(texto)
             if proveedor in ("gemini", "groq"):
                 if proveedor == "gemini":
                     url, key, model = ("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
@@ -113,6 +114,9 @@ def responder(texto: str) -> str:
                 if r.status_code == 400 and "think" in r.text.lower():
                     payload.pop("think")
                     r = requests.post(config.OLLAMA_URL, json=payload, timeout=300)
+            if r.status_code == 400 and not usar_todas and "not in request.tools" in r.text:
+                usar_todas = True  # el modelo eligió una herramienta fuera de la selección: reintentar con todas
+                continue
             r.raise_for_status()
             m = r.json()["choices"][0]["message"] if proveedor in ("gemini", "groq") else r.json()["message"]
             # Gemini OpenAI compatibility may return null content for tool-only turns;
