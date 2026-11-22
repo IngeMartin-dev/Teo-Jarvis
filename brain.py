@@ -11,6 +11,15 @@ SISTEMA = (
     "Cierra una aplicación solo si el usuario pidió cerrarla. Instala una aplicación solo si el usuario lo pidió explícitamente; "
     "la instalación está limitada a WinGet y al usuario actual. Nunca instales herramientas o archivos del sistema. "
     "No modifiques archivos que el usuario no haya indicado; nunca escribas, borres ni instales nada dentro de Windows o carpetas del sistema. "
+    "Microsoft Store: tienes buscar_en_tienda, abrir_tienda e instalar_desde_tienda. Cuando el usuario pide instalar una app, "
+    "esa petición ya es la autorización: no pidas permisos adicionales ni digas que no puedes acceder a la Tienda; búscala "
+    "e instálala (primero instalar_app con WinGet; si no está ahí, busca en la Tienda). "
+    "Control del PC: puedes usar el mouse y el teclado con clic_elemento (preferido: haz clic por el nombre del botón), "
+    "listar_elementos, clic, mover_mouse, scroll, escribir_texto y presionar_teclas. Usa estas herramientas solo cuando el usuario "
+    "lo pida; nunca teclees contraseñas ni actúes sobre terminales o ajustes del sistema, y si una herramienta lo rechaza por seguridad, "
+    "dile al usuario que lo haga él. "
+    "WhatsApp: usa enviar_whatsapp (solo deja el mensaje escrito en pantalla, sin enviarlo), dile al usuario que revise el chat y "
+    "pregúntale si lo envías; usa confirmar_whatsapp únicamente después de que el usuario diga que sí. "
     "Si el mensaje incluye una captura de pantalla, analízala directamente y responde sobre lo que ves; nunca digas que no tienes acceso a la pantalla cuando la imagen está adjunta. "
     "La captura solo se toma para responder a una petición del usuario, se conserva en memoria durante la consulta y no se guarda como archivo. "
     "Si una herramienta falla o no encuentra algo, prueba otra antes de rendirte: por ejemplo, si no es una app "
@@ -121,7 +130,7 @@ def responder(texto: str) -> str:
                 if isinstance(args, str):
                     args = json.loads(args or "{}")
                 try:
-                    if nombre == "confirmar_envio" and not _confirmado(texto):
+                    if nombre in ("confirmar_envio", "confirmar_whatsapp") and not _confirmado(texto):
                         res = "El usuario todavía no ha confirmado. Pregúntale si lo envías y espera su respuesta."
                     else:
                         res = tools.REGISTRY[nombre](**args)

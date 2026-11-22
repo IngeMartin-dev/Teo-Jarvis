@@ -43,3 +43,12 @@ Notas:
 
 ## Pendiente
 - Canva: requiere su API (Canva Connect) y es más complejo; por ahora Jarvis puede abrir Canva en el navegador.
+
+## Control del PC, WhatsApp y Microsoft Store
+Instala las librerías nuevas con el entorno activo: `python -m pip install -r requirements.txt`
+
+- **Microsoft Store:** «Jarvis, instala Spotify de la Tienda», «busca WhatsApp en la Tienda», «abre la Tienda». Usa WinGet con la fuente `msstore` (viene con Windows); si pide iniciar sesión, ábrela e inicia sesión una vez.
+- **Mouse y teclado:** «haz clic en Aceptar», «escribe hola», «presiona ctrl+c», «baja la página». Prefiere hacer clic por el **nombre** del botón (`clic_elemento`); también hay clic por coordenadas.
+- **WhatsApp Desktop:** «Jarvis, mándale a Mamá por WhatsApp que llego tarde». Escribe el mensaje en el chat, tú lo revisas en pantalla y **solo se envía cuando dices «sí» / «envíalo»**. Por número usa el indicativo (un número de 10 dígitos que empieza por 3 se toma como Colombia, +57).
+- **Seguridad:** mueve el mouse a la **esquina superior izquierda** de la pantalla para detener cualquier acción. Jarvis no actúa sobre terminales, el cuadro Ejecutar, el Registro, el Administrador de tareas ni avisos de UAC, y no escribe en ventanas de contraseña o inicio de sesión.
+- **Apagar permisos:** en `config_local.py` pon, por ejemplo, `PERMISOS = {"control_pc": False, "whatsapp": True, "tienda": True}`.

@@ -439,6 +439,11 @@ import tools_google
 TOOLS_SPEC += tools_google.SPEC
 REGISTRY.update(tools_google.REGISTRY)
 
+# ---------- PC: Microsoft Store, mouse/teclado y WhatsApp ----------
+import tools_pc
+TOOLS_SPEC += tools_pc.SPEC
+REGISTRY.update(tools_pc.REGISTRY)
+
 
 # ---------- Selección de herramientas por tema (menos tokens = respuestas más rápidas) ----------
 _BASE = {"abrir_app", "cerrar_app", "instalar_app", "abrir_url", "ejecutar_rutina", "recordar", "olvidar", "hora_actual"}
@@ -454,6 +459,14 @@ _GRUPOS = [
      {"crear_word", "crear_excel", "agregar_fila_excel", "crear_powerpoint"}),
     (("proyecto", "repositorio", "github", "git", "sube", "código", "codigo", "programar", "commit"),
      {"crear_proyecto", "subir_cambios"}),
+    (("tienda", "store", "instala", "descarga", "descargar"),
+     {"abrir_tienda", "buscar_en_tienda", "instalar_desde_tienda"}),
+    (("whatsapp", "wasap", "mensaje a", "mándale", "mandale", "escríbele", "escribele", "dile a"),
+     {"enviar_whatsapp", "confirmar_whatsapp", "cancelar_whatsapp"}),
+    (("mouse", "ratón", "raton", "clic", "click", "haz clic", "teclado", "escribe", "teclea", "tecla", "scroll",
+      "desplaza", "botón", "boton", "pulsa", "presiona", "controla", "pestaña", "ventana", "cursor"),
+     {"tamano_pantalla", "listar_elementos", "clic_elemento", "mover_mouse", "clic", "scroll",
+      "escribir_texto", "presionar_teclas"}),
 ]
 
 
@@ -466,4 +479,6 @@ def seleccionar(texto: str) -> list:
             nombres |= grupo
     if tools_google._pendiente:   # hay un correo esperando confirmación
         nombres |= {"confirmar_envio", "cancelar_envio", "enviar_correo"}
+    if tools_pc._wa:              # hay un WhatsApp esperando confirmación
+        nombres |= {"confirmar_whatsapp", "cancelar_whatsapp"}
     return [f for f in TOOLS_SPEC if f["function"]["name"] in nombres]
