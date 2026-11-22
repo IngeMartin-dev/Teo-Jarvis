@@ -65,3 +65,9 @@ Instala las librerías nuevas con el entorno activo: `python -m pip install -r r
 - **Privacidad:** con Gemini o Groq, el código que Jarvis lee se envía a esa nube para poder responder. Con Ollama (local) no sale de tu PC.
 - **Opciones:** `PERMISOS = {"codigo": False}` lo apaga; `CODIGO_ABRIR_VSCODE = False` evita que abra VS Code tras cada cambio.
 - Si dice que no encuentra `code`: en VS Code, Ctrl+Shift+P → «Shell Command: Install 'code' command in PATH».
+
+## Groq: rotación automática de modelos (error 429)
+Con **Groq** elegido, si un modelo responde 429 (límite gratuito), Jarvis pasa al siguiente de la lista `GROQ_MODELS` de `config.py` **sin avisarte** y sigue la conversación. Solo si **todos** dan 429 ves el error 429. Los modelos que acaban de dar 429 se saltan un rato (el tiempo que indica Groq) y se vuelven a probar.
+- Cualquier otro error (400, 401...) **no cambia de modelo**: se muestra tal cual; los 5xx y fallos de red se reintentan hasta 3 veces con el mismo modelo.
+- Con Groq elegido no se salta a otros proveedores: la cadena entre proveedores solo aplica a los demás.
+- Para ver la pantalla se usan solo los modelos de `GROQ_VISION_MODELS`.

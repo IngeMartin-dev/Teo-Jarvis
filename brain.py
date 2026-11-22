@@ -1,7 +1,61 @@
 """Cerebro: habla con Ollama y ejecuta herramientas."""
-import json, re, requests
+import json, re, requests, time
 from datetime import datetime
 import config, memory, tools
+
+# ---------------- Groq: rotación entre modelos cuando uno da 429 ----------------
+_groq_agotado: dict = {}  # modelo -> hora hasta la que sabemos que está agotado (429)
+
+
+def _modelos_groq(con_imagen: bool) -> list:
+    """Modelos en orden de preferencia; los que dieron 429 hace poco pasan al final (se prueban por última vez)."""
+    if con_imagen:
+        base = list(getattr(config, "GROQ_VISION_MODELS", None) or [config.GROQ_VISION_MODEL])
+    else:
+        base = list(getattr(config, "GROQ_MODELS", None) or [config.GROQ_MODEL])
+    ahora = time.time()
+    libres = [m for m in base if _groq_agotado.get(m, 0) <= ahora]
+    agotados = sorted((m for m in base if m not in libres), key=lambda m: _groq_agotado[m])
+    return libres + agotados
+
+
+def _espera_429(r) -> float:
+    try:
+        return min(max(float(r.headers.get("retry-after", 60)), 20.0), 3600.0)
+    except (TypeError, ValueError):
+        return 60.0
+
+
+def _post_groq(url: str, headers: dict, msgs: list, herramientas: list, con_imagen: bool):
+    """Una petición a Groq con esta política:
+    - 429  -> pasa al SIGUIENTE modelo de la lista, sin decir nada. Si todos dan 429, devuelve ese 429.
+    - otros errores (400, etc.) -> NO cambia de modelo: se devuelve para que se muestre (los fallos 5xx y de red se reintentan
+      hasta 3 veces con el mismo modelo)."""
+    ultimo_429 = None
+    for modelo in _modelos_groq(con_imagen):
+        for intento in range(3):
+            payload = {"model": modelo, "messages": msgs, "tools": herramientas, "tool_choice": "auto"}
+            if "gpt-oss" in modelo or "qwen" in modelo:
+                payload["reasoning_effort"] = "low"
+            try:
+                r = requests.post(url, headers=headers, json=payload, timeout=90)
+                if r.status_code == 400 and "reasoning_effort" in payload and "reasoning_effort" in r.text:
+                    payload.pop("reasoning_effort")  # este modelo no admite ese parámetro: mismo modelo, sin él
+                    r = requests.post(url, headers=headers, json=payload, timeout=90)
+            except (requests.ConnectionError, requests.Timeout):
+                if intento == 2:
+                    raise
+                time.sleep(1.5)
+                continue
+            if r.status_code == 429:
+                _groq_agotado[modelo] = time.time() + _espera_429(r)
+                ultimo_429 = r
+                break  # siguiente modelo
+            if r.status_code >= 500 and intento < 2:
+                time.sleep(1.5)
+                continue
+            return r
+    return ultimo_429
 
 SISTEMA = (
     "Eres Jarvis, el asistente personal del usuario en su PC con Windows. Responde siempre en español, "
@@ -18,6 +72,9 @@ SISTEMA = (
     "editar_codigo (cambios puntuales), agregar_al_final, buscar_en_codigo, abrir_en_vscode y deshacer_cambio. Antes de editar un archivo "
     "existente léelo con leer_codigo y copia el fragmento exacto; para proyectos nuevos usa crear_proyecto y luego escribe los archivos "
     "que pida el usuario; para un proyecto ya existente nombra su carpeta en el parámetro proyecto. No lees ni tocas .env, credenciales ni claves. "
+    "Archivos largos: no los pases enteros en una sola llamada; crea el archivo con una primera parte (escribir_codigo) y agrega el resto "
+    "en partes de unas 50 líneas con agregar_al_final, para que el JSON de la llamada no se rompa. "
+    "Si el usuario pide crear o modificar un archivo o página, SÍ puedes: usa estas herramientas, nunca digas que no puedes ni le pidas pegarlo a mano. "
     "Al terminar di en una frase qué cambiaste; el usuario puede pedirte deshacer_cambio. "
     "Control del PC: puedes usar el mouse y el teclado con clic_elemento (preferido: haz clic por el nombre del botón), "
     "listar_elementos, clic, mover_mouse, scroll, escribir_texto y presionar_teclas. Usa estas herramientas solo cuando el usuario "
@@ -114,6 +171,7 @@ def responder(texto: str) -> str:
         return None
 
     usar_todas = False  # si el modelo pide una herramienta que no enviamos, reintenta con todas
+    reintentos_json = 0  # el modelo a veces genera JSON inválido al pasar archivos largos como argumento
     try:
         for _ in range(14):  # máximo 14 rondas (programar puede encadenar varias lecturas y ediciones)
             proveedor = proveedor_actual
@@ -152,13 +210,17 @@ def responder(texto: str) -> str:
                     url = (f"https://api.cloudflare.com/client/v4/accounts/"
                            f"{config.CLOUDFLARE_ACCOUNT_ID}/ai/v1/chat/completions")
                     key, model = config.CLOUDFLARE_API_TOKEN, config.CLOUDFLARE_MODEL
-                payload = {"model": model, "messages": msgs, "tools": herramientas, "tool_choice": "auto"}
-                if proveedor in ("groq", "gemini"):
-                    payload["reasoning_effort"] = "low"
                 headers = {"Authorization": f"Bearer {key}"}
                 if proveedor == "openrouter":
                     headers["X-Title"] = "Jarvis"
-                r = requests.post(url, headers=headers, json=payload, timeout=90)
+                if proveedor == "groq":
+                    # Rota entre los modelos de Groq cuando uno da 429 (sin avisar al usuario)
+                    r = _post_groq(url, headers, msgs, herramientas, bool(captura))
+                else:
+                    payload = {"model": model, "messages": msgs, "tools": herramientas, "tool_choice": "auto"}
+                    if proveedor == "gemini":
+                        payload["reasoning_effort"] = "low"
+                    r = requests.post(url, headers=headers, json=payload, timeout=90)
             else:
                 payload = {
                     "model": config.MODEL, "messages": msgs, "tools": herramientas, "stream": False,
@@ -168,7 +230,8 @@ def responder(texto: str) -> str:
                 if r.status_code == 400 and "think" in r.text.lower():
                     payload.pop("think")
                     r = requests.post(config.OLLAMA_URL, json=payload, timeout=300)
-            if proveedor != "local" and (
+            # Con Groq elegido NO se salta a otro proveedor: ya rotó entre sus modelos (429) y los demás errores se muestran.
+            if proveedor != "local" and not (proveedor == "groq" and proveedor_inicial == "groq") and (
                 r.status_code in (401, 402, 403, 429) or r.status_code >= 500 or
                 (r.status_code == 400 and any(p in r.text.lower() for p in ("invalid api key", "api_key_invalid", "please pass a valid api key")))
             ):
@@ -177,6 +240,15 @@ def responder(texto: str) -> str:
                 if siguiente:
                     proveedor_actual = siguiente
                     continue
+            if r.status_code == 400 and reintentos_json < 2 and (
+                    "parse tool call arguments" in r.text.lower() or "tool_use_failed" in r.text.lower()):
+                reintentos_json += 1
+                msgs.append({"role": "user", "content": (
+                    "[Aviso del sistema] Tu llamada anterior a una herramienta tenía JSON inválido (suele pasar con archivos "
+                    "largos o con comillas y saltos de línea). Repítela con contenido más corto: crea el archivo con una primera "
+                    "parte de unas 50 líneas usando escribir_codigo y agrega el resto por partes con agregar_al_final. "
+                    "Escapa bien las comillas y los saltos de línea.")})
+                continue
             if r.status_code == 400 and not usar_todas and "not in request.tools" in r.text:
                 usar_todas = True  # el modelo eligió una herramienta fuera de la selección: reintentar con todas
                 continue

@@ -34,6 +34,16 @@ CLOUDFLARE_MODEL = "@cf/zai-org/glm-5.3"
 GEMINI_MODEL = "gemini-4-hydrogen"
 GROQ_MODEL = "openai/gpt-oss-120b"
 GROQ_VISION_MODEL = "qwen/qwen3.8-27b"
+# Con Groq elegido, si un modelo da 429 Jarvis pasa al siguiente sin avisar. Orden de preferencia:
+GROQ_MODELS = [
+    "openai/gpt-oss-120b",
+    "openai/gpt-oss-20b",
+    "qwen/qwen3.8-27b",
+    "minimaxai/minimax-m2.7",
+    "meta-models/muse-spark-open",
+    "llama-3.3-70b-versatile",
+]
+GROQ_VISION_MODELS = [GROQ_VISION_MODEL]  # modelos que aceptan imágenes (ver la pantalla)
 TIMEZONE = "America/Bogota"
 
 # --- Voz ---
