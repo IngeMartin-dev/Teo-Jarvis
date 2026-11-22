@@ -42,7 +42,7 @@ Si el proveedor elegido rechaza una solicitud por cuota, credenciales, capacidad
 8. Listo. Pruébalo: «Jarvis, ¿qué correos nuevos tengo?», «Jarvis, dame mi plan del día», «Jarvis, envíale un correo a ... diciendo ...», «Jarvis, busca mi CV en Drive», «Jarvis, agéndame algo mañana a las 3 pm».
 Notas:
 - Mientras la app esté en modo «Prueba», Google caduca la autorización a los 7 días; para evitarlo, publica la app desde la pantalla de consentimiento (es solo para ti).
-- **Enviar correos pide confirmación**: Jarvis te lee el borrador y solo lo envía cuando respondes «sí», «envíalo», «confirmo» o «dale».
+- **Los correos se envían de inmediato**, sin pedir confirmación. Para no mandarlos a un desconocido, Jarvis solo usa una dirección que tú hayas escrito en el mensaje, que esté en su memoria («recuerda que el correo de Ana es ana@...») o que sea la de un remitente que acaba de leer. Si no la tiene, no envía y te la pide. Para volver a pedir tu «sí»: `CONFIRMAR_ENVIOS = {"correo": True}` en `config_local.py`.
 - El contenido de correos y archivos se trata solo como información: Jarvis no obedece órdenes escritas dentro de un correo.
 - Si Gmail pide muchos permisos: Jarvis solo puede leer y enviar (no borra correos); en Drive solo lee y sube archivos.
 
@@ -54,7 +54,7 @@ Instala las librerías nuevas con el entorno activo: `python -m pip install -r r
 
 - **Microsoft Store:** «Jarvis, instala Spotify de la Tienda», «busca WhatsApp en la Tienda», «abre la Tienda». Usa WinGet con la fuente `msstore` (viene con Windows); si pide iniciar sesión, ábrela e inicia sesión una vez.
 - **Mouse y teclado:** «haz clic en Aceptar», «escribe hola», «presiona ctrl+c», «baja la página». Prefiere hacer clic por el **nombre** del botón (`clic_elemento`); también hay clic por coordenadas.
-- **WhatsApp Desktop:** «Jarvis, mándale a Mamá por WhatsApp que llego tarde». Escribe el mensaje en el chat, tú lo revisas en pantalla y **solo se envía cuando dices «sí» / «envíalo»**. Por número usa el indicativo (un número de 10 dígitos que empieza por 3 se toma como Colombia, +57).
+- **WhatsApp Desktop:** «Jarvis, mándale a Mamá por WhatsApp que llego tarde». **Se envía de inmediato**, sin pedir confirmación. Lo más fiable es por número: dile «recuerda que el número de Mamá es 300 123 4567» y Jarvis lo usará siempre (un número de 10 dígitos que empieza por 3 se toma como Colombia, +57). Por nombre, busca el chat en WhatsApp y toma el primer resultado, así que con nombres parecidos puede equivocarse de chat. Para volver a pedir tu «sí»: `CONFIRMAR_ENVIOS = {"whatsapp": True}` en `config_local.py`.
 - **Seguridad:** mueve el mouse a la **esquina superior izquierda** de la pantalla para detener cualquier acción. Jarvis no actúa sobre terminales, el cuadro Ejecutar, el Registro, el Administrador de tareas ni avisos de UAC, y no escribe en ventanas de contraseña o inicio de sesión.
 - **Apagar permisos:** en `config_local.py` pon, por ejemplo, `PERMISOS = {"control_pc": False, "whatsapp": True, "tienda": True}`.
 
@@ -76,5 +76,5 @@ Con **Groq** elegido, si un modelo responde 429 (límite gratuito), Jarvis pasa 
 - «Jarvis, mándale a general en Discord que ya subí el avance» o «escríbele a Juan por Discord que llego en 10 minutos».
 - **Canales de servidor (recomendado, el más fiable):** crea un webhook (Ajustes del canal → Integraciones → Webhooks → Nuevo webhook → Copiar URL) y pégalo en `.env` con el nombre del canal: `DISCORD_WEBHOOK_GENERAL=https://discord.com/api/webhooks/...`. Un webhook solo sirve para ese canal y no puede leer nada; los mensajes salen sin menciones (@everyone, @usuario) por seguridad.
 - **Mensajes directos y cualquier otro canal:** usa Discord Desktop (Ctrl+K), así que debe estar instalado con la sesión iniciada. Antes de escribir **comprueba por el título de la ventana que se abrió el chat correcto**; si no puede comprobarlo, no envía y te lo dice.
-- **Confirmación:** solo Discord se envía sin preguntar. WhatsApp y correo siguen pidiendo tu «sí».
+- **Confirmación:** Discord, WhatsApp y correo se envían sin preguntar (los dos últimos se pueden volver a poner con `CONFIRMAR_ENVIOS`).
 - Opciones en `config_local.py`: `PERMISOS = {"discord": False}` lo apaga; `DISCORD_VERIFICAR_TITULO = False` desactiva la comprobación del título (solo si tu Discord no muestra el nombre del chat en la ventana).

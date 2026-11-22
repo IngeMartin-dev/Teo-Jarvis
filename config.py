@@ -86,6 +86,9 @@ APPS = {
     "bloc de notas": "notepad",
 }
 
+# True = pedir tu «sí» antes de enviar (False = se envía enseguida). Discord siempre se envía enseguida.
+CONFIRMAR_ENVIOS = {"correo": False, "whatsapp": False}
+
 try:
     from config_local import *  # type: ignore  # noqa: F401,F403
 except ImportError:

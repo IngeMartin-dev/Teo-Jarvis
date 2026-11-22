@@ -363,8 +363,24 @@ def _whatsapp_al_frente(segundos: float = 12) -> bool:
     return False
 
 
+def _telefono_en_memoria(nombre: str):
+    """Si el usuario le pidió recordar el número de un contacto ("el número de Mamá es 300 123 4567"), lo usa: es más fiable
+    que buscar por nombre en la aplicación."""
+    import memory
+    q = apps_index._norm(nombre)
+    if not q:
+        return None
+    for h in memory.hechos():
+        if q in apps_index._norm(h):
+            m = re.search(r"\+?\d[\d\s().-]{7,}\d", h)
+            if m and (tel := _telefono(m.group())):
+                return tel
+    return None
+
+
 def enviar_whatsapp(destino: str, mensaje: str) -> str:
-    """Prepara un mensaje de WhatsApp (NO lo envía). destino = nombre del contacto o número con indicativo."""
+    """Envía un mensaje de WhatsApp AL INSTANTE. destino = nombre del contacto o número con indicativo.
+    Con CONFIRMAR_ENVIOS = {"whatsapp": True} solo lo deja escrito y espera confirmar_whatsapp."""
     if (m := _permiso("whatsapp") or _permiso("control_pc")):
         return m
     destino, mensaje = destino.strip(), mensaje.strip()
@@ -372,7 +388,7 @@ def enviar_whatsapp(destino: str, mensaje: str) -> str:
         return "Necesito un contacto (o número) y un mensaje de máximo 1000 caracteres."
     _wa.clear()
     try:
-        tel = _telefono(destino)
+        tel = _telefono(destino) or _telefono_en_memoria(destino)
         os.startfile(f"whatsapp://send?phone={tel}&text={quote(mensaje)}" if tel else "whatsapp:")
         if not _whatsapp_al_frente():
             return "No pude abrir WhatsApp Desktop o no se puso al frente. ¿Está instalado y con la sesión iniciada?"
@@ -386,6 +402,8 @@ def enviar_whatsapp(destino: str, mensaje: str) -> str:
         if not _whatsapp_al_frente(3):
             return "WhatsApp dejó de estar al frente; no preparé nada."
         _wa.update(destino=destino, mensaje=mensaje, ts=time.time())
+        if not getattr(config, "CONFIRMAR_ENVIOS", {}).get("whatsapp", False):
+            return confirmar_whatsapp()  # sin confirmación: se envía ya
         return (f"Dejé escrito el mensaje para «{destino}» en WhatsApp, pero NO lo envié. Dile al usuario que revise en "
                 "pantalla que sea el chat correcto y pregúntale si lo envías.")
     except Exception as e:
@@ -447,8 +465,7 @@ SPEC = [
     _t("scroll", "Hace scroll con la rueda del mouse (positivo = arriba, negativo = abajo)", {"cantidad": I}, ["cantidad"]),
     _t("escribir_texto", "Escribe texto con el teclado en la ventana activa", {"texto": S, "enter": B}, ["texto"]),
     _t("presionar_teclas", "Presiona una tecla o combinación, por ejemplo enter, ctrl+c, alt+tab", {"teclas": S}, ["teclas"]),
-    _t("enviar_whatsapp", "Prepara un mensaje en WhatsApp Desktop (NO lo envía). destino = nombre del contacto o número con indicativo. "
-                          "Después pregunta al usuario si lo envías",
+    _t("enviar_whatsapp", "Envía un mensaje por WhatsApp Desktop de inmediato, sin pedir confirmación. destino = nombre del contacto o número con indicativo",
        {"destino": S, "mensaje": S}, ["destino", "mensaje"]),
     _t("confirmar_whatsapp", "Envía el mensaje de WhatsApp preparado. Solo después de que el usuario diga que sí", {}, []),
     _t("cancelar_whatsapp", "Descarta el mensaje de WhatsApp preparado", {}, []),

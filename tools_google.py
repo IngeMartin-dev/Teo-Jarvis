@@ -3,7 +3,31 @@ import base64, re
 from email.header import decode_header, make_header
 from email.message import EmailMessage
 from pathlib import Path
-import config
+import config, memory
+
+# Contexto de la petición actual: de aquí sale la lista de direcciones que Jarvis puede usar sin confirmación.
+_contexto = {"texto": "", "vistos": set()}
+_EMAIL = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
+
+
+def set_contexto(texto: str):
+    """Lo llama brain.py en cada mensaje: texto del usuario, memoria y sus últimos mensajes (NO los de Jarvis)."""
+    partes = [texto] + memory.hechos() + [m["content"] for m in memory.ultimos(12) if m["role"] == "user"]
+    _contexto["texto"] = "\n".join(str(p) for p in partes).lower()
+    _contexto["vistos"] = set()
+
+
+def _direccion_conocida(para: str) -> bool:
+    p = para.strip().lower()
+    return p in _contexto["texto"] or p in _contexto["vistos"]
+
+
+def _registrar_remitente(de: str):
+    _contexto["vistos"].update(x.lower() for x in _EMAIL.findall(de or ""))
+
+
+def _confirmar(canal: str) -> bool:
+    return bool(getattr(config, "CONFIRMAR_ENVIOS", {}).get(canal, False))
 
 _ERR_LIB = "Faltan las librerías de Google. Ejecuta: python -m pip install -r requirements.txt"
 
@@ -70,6 +94,7 @@ def ver_correos(consulta: str = "in:inbox is:unread", cantidad: int = 8) -> str:
     for i in ids:
         m = g.users().messages().get(userId="me", id=i, format="metadata",
                                      metadataHeaders=["From", "Subject", "Date"]).execute()
+        _registrar_remitente(_cab(m, 'From'))
         out.append(f"[{i}] De: {_cab(m, 'From')[:60]} | Asunto: {_cab(m, 'Subject')[:80]} | {m.get('snippet', '')[:100]}")
     return "\n".join(out)
 
@@ -77,6 +102,7 @@ def ver_correos(consulta: str = "in:inbox is:unread", cantidad: int = 8) -> str:
 @_protegido
 def leer_correo(id_correo: str) -> str:
     m = _gmail().users().messages().get(userId="me", id=id_correo, format="full").execute()
+    _registrar_remitente(_cab(m, 'From'))
     return (f"De: {_cab(m, 'From')}\nAsunto: {_cab(m, 'Subject')}\nFecha: {_cab(m, 'Date')}\n\n"
             f"{_cuerpo(m['payload'])[:3000]}")
 
@@ -84,28 +110,39 @@ def leer_correo(id_correo: str) -> str:
 _pendiente: dict = {}
 
 
-def enviar_correo(para: str, asunto: str, cuerpo: str) -> str:
-    """Solo prepara un borrador. NO envía nada hasta confirmar_envio."""
-    if not re.fullmatch(r"[^@\s,;]+@[^@\s,;]+\.[^@\s,;]+", para.strip()):
-        return "La dirección no parece un correo válido. Pídele al usuario la dirección completa."
-    _pendiente.clear()
-    _pendiente.update(para=para.strip(), asunto=asunto, cuerpo=cuerpo)
-    return (f"BORRADOR (todavía NO enviado) para {para.strip()}, asunto «{asunto}»: {cuerpo[:300]}. "
-            "Léeselo al usuario y pregúntale si lo envías.")
-
-
 @_protegido
+def _enviar_ahora(para: str, asunto: str, cuerpo: str) -> str:
+    msg = EmailMessage()
+    msg["To"], msg["Subject"] = para, asunto
+    msg.set_content(cuerpo)
+    raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
+    _gmail().users().messages().send(userId="me", body={"raw": raw}).execute()
+    return f"Correo enviado a {para}."
+
+
+def enviar_correo(para: str, asunto: str, cuerpo: str) -> str:
+    """Envía el correo AL INSTANTE (sin confirmación). Con CONFIRMAR_ENVIOS = {"correo": True} solo deja un borrador."""
+    para = para.strip()
+    if not re.fullmatch(r"[^@\s,;]+@[^@\s,;]+\.[^@\s,;]+", para):
+        return "La dirección no parece un correo válido. Pídele al usuario la dirección completa escrita."
+    if not _direccion_conocida(para):
+        return ("No tengo esa dirección en lo que me dijiste ni en mi memoria, así que no envío nada para no mandárselo a un "
+                "desconocido. Pídele al usuario la dirección completa escrita, o que me la haga recordar.")
+    if _confirmar("correo"):
+        _pendiente.clear()
+        _pendiente.update(para=para, asunto=asunto, cuerpo=cuerpo)
+        return (f"BORRADOR (todavía NO enviado) para {para}, asunto «{asunto}»: {cuerpo[:300]}. "
+                "Léeselo al usuario y pregúntale si lo envías.")
+    return _enviar_ahora(para, asunto, cuerpo)
+
+
 def confirmar_envio() -> str:
     if not _pendiente:
         return "No hay ningún correo pendiente de envío."
-    msg = EmailMessage()
-    msg["To"], msg["Subject"] = _pendiente["para"], _pendiente["asunto"]
-    msg.set_content(_pendiente["cuerpo"])
-    raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
-    _gmail().users().messages().send(userId="me", body={"raw": raw}).execute()
-    para = _pendiente["para"]
-    _pendiente.clear()
-    return f"Correo enviado a {para}."
+    r = _enviar_ahora(_pendiente["para"], _pendiente["asunto"], _pendiente["cuerpo"])
+    if r.startswith("Correo enviado"):
+        _pendiente.clear()
+    return r
 
 
 def cancelar_envio() -> str:
@@ -203,7 +240,7 @@ SPEC = [
     _t("ver_correos", "Lista correos de Gmail. consulta usa la sintaxis de Gmail (por defecto: sin leer en la bandeja)",
        {"consulta": S, "cantidad": I}, []),
     _t("leer_correo", "Lee el contenido de un correo por su id", {"id_correo": S}, ["id_correo"]),
-    _t("enviar_correo", "Prepara un borrador de correo (NO lo envía). Luego pregunta al usuario si lo envías",
+    _t("enviar_correo", "Envía un correo de inmediato, sin pedir confirmación. Necesita la dirección completa escrita por el usuario (nunca la inventes)",
        {"para": S, "asunto": S, "cuerpo": S}, ["para", "asunto", "cuerpo"]),
     _t("confirmar_envio", "Envía el borrador pendiente. Solo úsalo después de que el usuario diga que sí", {}, []),
     _t("cancelar_envio", "Descarta el borrador pendiente", {}, []),
