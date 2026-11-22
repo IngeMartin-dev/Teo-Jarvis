@@ -70,7 +70,7 @@ def ver_correos(consulta: str = "in:inbox is:unread", cantidad: int = 8) -> str:
     for i in ids:
         m = g.users().messages().get(userId="me", id=i, format="metadata",
                                      metadataHeaders=["From", "Subject", "Date"]).execute()
-        out.append(f"[{i}] De: {_cab(m, 'From')[:60]} | Asunto: {_cab(m, 'Subject')[:80]} | {m.get('snippet', '')[:140]}")
+        out.append(f"[{i}] De: {_cab(m, 'From')[:60]} | Asunto: {_cab(m, 'Subject')[:80]} | {m.get('snippet', '')[:100]}")
     return "\n".join(out)
 
 
@@ -179,7 +179,7 @@ def subir_a_drive(ruta: str) -> str:
 # ------------------------------ Plan del día ------------------------------
 def plan_del_dia() -> str:
     """Reúne correos sin leer y la agenda de hoy para que Jarvis redacte el plan."""
-    partes = ["CORREOS SIN LEER (últimas 24 h):\n" + ver_correos("in:inbox is:unread newer_than:1d", 10)]
+    partes = ["CORREOS SIN LEER (últimas 24 h):\n" + ver_correos("in:inbox is:unread newer_than:1d", 6)]
     try:
         import google_calendar
         partes.append("AGENDA DE HOY:\n" + google_calendar.hoy())

@@ -322,3 +322,32 @@ REGISTRY = {f["function"]["name"]: globals()[f["function"]["name"]] for f in TOO
 import tools_google
 TOOLS_SPEC += tools_google.SPEC
 REGISTRY.update(tools_google.REGISTRY)
+
+
+# ---------- Selección de herramientas por tema (menos tokens = respuestas más rápidas) ----------
+_BASE = {"abrir_app", "abrir_url", "ejecutar_rutina", "recordar", "olvidar", "hora_actual"}
+_GRUPOS = [
+    (("correo", "mail", "gmail", "drive", "agenda", "calendar", "calendario", "reunión", "reunion",
+      "evento", "agend", "plan", "cita", "envía", "envia", "enviar"),
+     {"ver_correos", "leer_correo", "enviar_correo", "confirmar_envio", "cancelar_envio", "plan_del_dia",
+      "buscar_en_drive", "drive_recientes", "leer_drive", "subir_a_drive", "agendar", "ver_agenda"}),
+    (("archivo", "carpeta", "documento", "busca", "encuentra", "lee ", "lista", "descargas", "escritorio",
+      "foto", "imagen", "pdf", "abre el", "abre mi"),
+     {"abrir_archivo", "buscar_archivos", "listar_carpeta", "leer_archivo", "crear_carpeta"}),
+    (("word", "excel", "powerpoint", "presentación", "presentacion", "diapositiva", "tabla", "planilla", "fila"),
+     {"crear_word", "crear_excel", "agregar_fila_excel", "crear_powerpoint"}),
+    (("proyecto", "repositorio", "github", "git", "sube", "código", "codigo", "programar", "commit"),
+     {"crear_proyecto", "subir_cambios"}),
+]
+
+
+def seleccionar(texto: str) -> list:
+    """Devuelve solo las herramientas relevantes para el mensaje."""
+    t = texto.lower()
+    nombres = set(_BASE)
+    for palabras, grupo in _GRUPOS:
+        if any(p in t for p in palabras):
+            nombres |= grupo
+    if tools_google._pendiente:   # hay un correo esperando confirmación
+        nombres |= {"confirmar_envio", "cancelar_envio", "enviar_correo"}
+    return [f for f in TOOLS_SPEC if f["function"]["name"] in nombres]

@@ -50,10 +50,15 @@ def responder(texto: str) -> str:
     msgs = _mensajes(texto)
     try:
         for _ in range(6):  # máximo 6 rondas de herramientas
-            r = requests.post(config.OLLAMA_URL, json={
-                "model": config.MODEL, "messages": msgs, "tools": tools.TOOLS_SPEC, "stream": False,
-                "keep_alive": "30m", "options": {"num_ctx": 8192},
-            }, timeout=300)
+            payload = {
+                "model": config.MODEL, "messages": msgs, "tools": tools.seleccionar(texto), "stream": False,
+                "keep_alive": "30m", "options": {"num_ctx": 6144},
+                "think": False,  # sin "pensar" largo: mucho más rápido en CPU
+            }
+            r = requests.post(config.OLLAMA_URL, json=payload, timeout=300)
+            if r.status_code == 400 and "think" in r.text.lower():  # modelo sin modo de pensamiento
+                payload.pop("think")
+                r = requests.post(config.OLLAMA_URL, json=payload, timeout=300)
             r.raise_for_status()
             m = r.json()["message"]
             msgs.append(m)
