@@ -52,3 +52,11 @@ Instala las librerías nuevas con el entorno activo: `python -m pip install -r r
 - **WhatsApp Desktop:** «Jarvis, mándale a Mamá por WhatsApp que llego tarde». Escribe el mensaje en el chat, tú lo revisas en pantalla y **solo se envía cuando dices «sí» / «envíalo»**. Por número usa el indicativo (un número de 10 dígitos que empieza por 3 se toma como Colombia, +57).
 - **Seguridad:** mueve el mouse a la **esquina superior izquierda** de la pantalla para detener cualquier acción. Jarvis no actúa sobre terminales, el cuadro Ejecutar, el Registro, el Administrador de tareas ni avisos de UAC, y no escribe en ventanas de contraseña o inicio de sesión.
 - **Apagar permisos:** en `config_local.py` pon, por ejemplo, `PERMISOS = {"control_pc": False, "whatsapp": True, "tienda": True}`.
+
+## Programar y modificar archivos desde VS Code
+- **Qué hace:** «Jarvis, crea un proyecto web llamado portafolio y hazme una página con mi nombre», «en mi-tienda agrégale una función que sume dos números a main.py», «cambia el color del botón a azul en style.css», «busca dónde uso la palabra precio», «ábreme main.py en VS Code», «deshaz el último cambio». Cada archivo que crea o edita se abre en VS Code (línea incluida). Para subirlo, «sube los cambios de portafolio».
+- **Dónde trabaja:** en `~/Proyectos` (cada carpeta es un proyecto). Para que también pueda editar otras carpetas, por ejemplo el propio Jarvis, agrégalas en `config_local.py`: `CODIGO_RAICES = [r"C:\Users\POWER\jarvis"]`.
+- **Seguridad:** solo toca esas carpetas, no sale con `..`, no toca `.git` ni Windows, no lee ni escribe `.env`, `credentials.json`, `token.json` ni claves. Antes de cambiar un archivo guarda una copia en `~/.jarvis/backups` y «deshacer» la restaura. **No ejecuta código**: solo lo escribe y lo abre.
+- **Privacidad:** con Gemini o Groq, el código que Jarvis lee se envía a esa nube para poder responder. Con Ollama (local) no sale de tu PC.
+- **Opciones:** `PERMISOS = {"codigo": False}` lo apaga; `CODIGO_ABRIR_VSCODE = False` evita que abra VS Code tras cada cambio.
+- Si dice que no encuentra `code`: en VS Code, Ctrl+Shift+P → «Shell Command: Install 'code' command in PATH».

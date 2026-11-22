@@ -14,6 +14,11 @@ SISTEMA = (
     "Microsoft Store: tienes buscar_en_tienda, abrir_tienda e instalar_desde_tienda. Cuando el usuario pide instalar una app, "
     "esa petición ya es la autorización: no pidas permisos adicionales ni digas que no puedes acceder a la Tienda; búscala "
     "e instálala (primero instalar_app con WinGet; si no está ahí, busca en la Tienda). "
+    "Programar: trabajas en la carpeta de proyectos del usuario con listar_proyecto, leer_codigo, escribir_codigo (archivos nuevos), "
+    "editar_codigo (cambios puntuales), agregar_al_final, buscar_en_codigo, abrir_en_vscode y deshacer_cambio. Antes de editar un archivo "
+    "existente léelo con leer_codigo y copia el fragmento exacto; para proyectos nuevos usa crear_proyecto y luego escribe los archivos "
+    "que pida el usuario; para un proyecto ya existente nombra su carpeta en el parámetro proyecto. No lees ni tocas .env, credenciales ni claves. "
+    "Al terminar di en una frase qué cambiaste; el usuario puede pedirte deshacer_cambio. "
     "Control del PC: puedes usar el mouse y el teclado con clic_elemento (preferido: haz clic por el nombre del botón), "
     "listar_elementos, clic, mover_mouse, scroll, escribir_texto y presionar_teclas. Usa estas herramientas solo cuando el usuario "
     "lo pida; nunca teclees contraseñas ni actúes sobre terminales o ajustes del sistema, y si una herramienta lo rechaza por seguridad, "
@@ -88,7 +93,7 @@ def responder(texto: str) -> str:
             ]}
     usar_todas = False  # si el modelo pide una herramienta que no enviamos, reintenta con todas
     try:
-        for _ in range(8):  # máximo 8 rondas (alguna puede ser un reintento con todas las herramientas)
+        for _ in range(14):  # máximo 14 rondas (programar puede encadenar varias lecturas y ediciones)
             proveedor = getattr(config, "PROVEEDOR_ACTUAL", "local")
             herramientas = tools.TOOLS_SPEC if usar_todas else tools.seleccionar(texto)
             if proveedor in ("gemini", "groq"):
