@@ -1,0 +1,9 @@
+requests
+pystray
+pillow
+SpeechRecognition
+pyaudio
+pyttsx3
+python-docx
+openpyxl
+python-pptx
