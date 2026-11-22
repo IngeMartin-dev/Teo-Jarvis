@@ -454,10 +454,15 @@ import tools_discord
 TOOLS_SPEC += tools_discord.SPEC
 REGISTRY.update(tools_discord.REGISTRY)
 
+# ---------- Contactos (contactos.json) ----------
+import contactos
+TOOLS_SPEC += contactos.SPEC
+REGISTRY.update(contactos.REGISTRY)
+
 
 # ---------- Selección de herramientas por tema (menos tokens = respuestas más rápidas) ----------
 _BASE = {"abrir_app", "cerrar_app", "instalar_app", "buscar_en_tienda", "instalar_desde_tienda", "abrir_tienda",
-         "abrir_url", "ejecutar_rutina", "recordar", "olvidar", "hora_actual"}
+         "abrir_url", "ejecutar_rutina", "recordar", "olvidar", "hora_actual", "buscar_contacto", "guardar_contacto"}
 _GRUPOS = [
     (("correo", "mail", "gmail", "drive", "agenda", "calendar", "calendario", "reunión", "reunion",
       "evento", "agend", "plan", "cita", "envía", "envia", "enviar"),

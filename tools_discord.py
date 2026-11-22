@@ -103,6 +103,12 @@ def enviar_discord(destino: str, mensaje: str, tipo: str = "") -> str:
     clave = apps_index._norm(destino.lstrip("#"))
     if clave in hooks and tipo != "usuario":
         return _por_webhook(hooks[clave], mensaje, destino.lstrip("#"))
+    import contactos
+    valor, err = contactos.resolver(destino, "discord")
+    if err:
+        return err
+    if valor:  # contacto con usuario de Discord guardado: se usa ese nombre exacto
+        destino, tipo = valor, "usuario"
     return _por_escritorio(destino, mensaje, tipo)
 
 

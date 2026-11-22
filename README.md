@@ -78,3 +78,21 @@ Con **Groq** elegido, si un modelo responde 429 (límite gratuito), Jarvis pasa 
 - **Mensajes directos y cualquier otro canal:** usa Discord Desktop (Ctrl+K), así que debe estar instalado con la sesión iniciada. Antes de escribir **comprueba por el título de la ventana que se abrió el chat correcto**; si no puede comprobarlo, no envía y te lo dice.
 - **Confirmación:** Discord, WhatsApp y correo se envían sin preguntar (los dos últimos se pueden volver a poner con `CONFIRMAR_ENVIOS`).
 - Opciones en `config_local.py`: `PERMISOS = {"discord": False}` lo apaga; `DISCORD_VERIFICAR_TITULO = False` desactiva la comprobación del título (solo si tu Discord no muestra el nombre del chat en la ventana).
+
+## Contactos (`contactos.json`)
+Para no tener que decir números ni correos, Jarvis busca a las personas en `contactos.json` (junto al código). Si no existe, lo crea la primera vez copiando `contactos.example.json`. Git **lo ignora** porque tiene datos personales.
+```json
+{
+  "Mamá": {
+    "alias": ["mami", "mama"],
+    "whatsapp": "+57 300 123 4567",
+    "correo": "mama@gmail.com",
+    "discord": "mama_usuario"
+  }
+}
+```
+- Todos los campos son opcionales. `alias` son otros nombres con los que la llamas.
+- «Jarvis, mándale un WhatsApp a Mamá que llego tarde» / «escríbele un correo a mami...» / «dile a Juan por Discord...»: busca el nombre (o un alias) en este archivo y usa su número, correo o usuario de Discord. Con WhatsApp usa el número directo, sin buscar el chat por nombre, que es lo más fiable.
+- Para guardar: edita el archivo a mano o dile «guarda a Pedro con el número +57 300 111 2233 y el correo pedro@gmail.com». Solo guarda datos que tú escribiste en el mensaje.
+- **Seguridad:** solo coincide el nombre o alias completo (sin importar mayúsculas ni tildes), sin adivinar. Si el nombre coincide con varios contactos, pide aclarar en vez de elegir. Los números que terminan en ceros y los correos `@example.com` son de ejemplo y Jarvis no les envía nada. Al listar o consultar contactos, el modelo solo ve los números ocultados (últimos 3 dígitos) y los correos recortados; la lista completa no se le envía. Ojo: lo que tú le dices en el chat sí va al proveedor de IA que elijas (Ollama es local).
+- Si el JSON tiene un error de coma o comillas, Jarvis te dice la línea.

@@ -19,7 +19,10 @@ def set_contexto(texto: str):
 
 def _direccion_conocida(para: str) -> bool:
     p = para.strip().lower()
-    return p in _contexto["texto"] or p in _contexto["vistos"]
+    if p in _contexto["texto"] or p in _contexto["vistos"]:
+        return True
+    import contactos
+    return contactos.correo_guardado(p)
 
 
 def _registrar_remitente(de: str):
@@ -123,6 +126,12 @@ def _enviar_ahora(para: str, asunto: str, cuerpo: str) -> str:
 def enviar_correo(para: str, asunto: str, cuerpo: str) -> str:
     """Envía el correo AL INSTANTE (sin confirmación). Con CONFIRMAR_ENVIOS = {"correo": True} solo deja un borrador."""
     para = para.strip()
+    if "@" not in para:  # el modelo pasó un nombre ("Mamá"): se busca su correo en contactos.json
+        import contactos
+        valor, err = contactos.resolver(para, "correo", estricto=True)
+        if err:
+            return err
+        para = valor
     if not re.fullmatch(r"[^@\s,;]+@[^@\s,;]+\.[^@\s,;]+", para):
         return "La dirección no parece un correo válido. Pídele al usuario la dirección completa escrita."
     if not _direccion_conocida(para):

@@ -388,7 +388,18 @@ def enviar_whatsapp(destino: str, mensaje: str) -> str:
         return "Necesito un contacto (o número) y un mensaje de máximo 1000 caracteres."
     _wa.clear()
     try:
-        tel = _telefono(destino) or _telefono_en_memoria(destino)
+        import contactos
+        tel = _telefono(destino)
+        if not tel:
+            valor, err = contactos.resolver(destino, "whatsapp")
+            if err:
+                return err
+            if valor:
+                tel = _telefono(valor)
+                if not tel:
+                    return f"El número de «{destino}» en contactos.json no es válido; escríbelo con indicativo, ej. +57 300 123 4567."
+            else:
+                tel = _telefono_en_memoria(destino)
         os.startfile(f"whatsapp://send?phone={tel}&text={quote(mensaje)}" if tel else "whatsapp:")
         if not _whatsapp_al_frente():
             return "No pude abrir WhatsApp Desktop o no se puso al frente. ¿Está instalado y con la sesión iniciada?"
