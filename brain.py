@@ -78,38 +78,87 @@ def responder(texto: str) -> str:
 
     msgs = _mensajes(texto)
     pantalla_en_contexto = _pide_pantalla(texto)
+    captura = None
+    indice_mensaje_usuario = len(msgs) - 1
     if pantalla_en_contexto:
         captura = tools.capturar_pantalla()
         if captura.startswith("ERROR_CAPTURA:"):
             out = captura.removeprefix("ERROR_CAPTURA: ").strip()
             memory.guardar_chat("user", texto); memory.guardar_chat("assistant", out)
             return out
-        if getattr(config, "PROVEEDOR_ACTUAL", "local") == "local":
-            msgs[-1] = {"role": "user", "content": texto, "images": [captura]}
-        else:
-            msgs[-1] = {"role": "user", "content": [
-                {"type": "text", "text": texto},
-                {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + captura}},
-            ]}
+    proveedor_inicial = getattr(config, "PROVEEDOR_ACTUAL", "local")
+    proveedor_actual = proveedor_inicial
+    proveedores_fallidos = set()
+    orden_fallback = [proveedor_inicial, "openrouter", "cloudflare", "gemini", "groq", "local"]
+
+    def proveedor_configurado(nombre):
+        if nombre == "local":
+            return True
+        if nombre == "gemini":
+            return bool(config.GEMINI_API_KEY)
+        if nombre == "groq":
+            return bool(config.GROQ_API_KEY)
+        if nombre == "openrouter":
+            return bool(config.OPENROUTER_API_KEY)
+        if nombre == "cloudflare":
+            return bool(config.CLOUDFLARE_ACCOUNT_ID and config.CLOUDFLARE_API_TOKEN)
+        return False  # Mistral directo puede generar cargos; solo se usa si se elige explícitamente.
+
+    def siguiente_proveedor():
+        for candidato in orden_fallback:
+            if candidato in proveedores_fallidos or not proveedor_configurado(candidato):
+                continue
+            if captura and candidato in ("cloudflare", "mistral"):
+                continue  # GPT-OSS y el modelo Mistral configurado no reciben imágenes.
+            return candidato
+        return None
+
     usar_todas = False  # si el modelo pide una herramienta que no enviamos, reintenta con todas
     try:
         for _ in range(14):  # máximo 14 rondas (programar puede encadenar varias lecturas y ediciones)
-            proveedor = getattr(config, "PROVEEDOR_ACTUAL", "local")
+            proveedor = proveedor_actual
             herramientas = tools.TOOLS_SPEC if usar_todas else tools.seleccionar(texto)
-            if proveedor in ("gemini", "groq"):
+            if captura:
+                if proveedor in ("cloudflare", "mistral"):
+                    proveedores_fallidos.add(proveedor)
+                    siguiente = siguiente_proveedor()
+                    if siguiente:
+                        proveedor_actual = siguiente
+                        continue
+                    out = "No hay un proveedor configurado que pueda analizar imágenes. Elige Groq, Gemini, OpenRouter u Ollama con visión."
+                    break
+                if proveedor == "local":
+                    msgs[indice_mensaje_usuario] = {"role": "user", "content": texto, "images": [captura]}
+                else:
+                    msgs[indice_mensaje_usuario] = {"role": "user", "content": [
+                        {"type": "text", "text": texto},
+                        {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + captura}},
+                    ]}
+            if proveedor in ("gemini", "groq", "openrouter", "mistral", "cloudflare"):
                 if proveedor == "gemini":
                     url, key, model = ("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
                                        config.GEMINI_API_KEY, config.GEMINI_MODEL)
-                else:
+                elif proveedor == "groq":
                     url, key, model = ("https://api.groq.com/openai/v1/chat/completions",
                                        config.GROQ_API_KEY,
                                        config.GROQ_VISION_MODEL if pantalla_en_contexto else config.GROQ_MODEL)
+                elif proveedor == "openrouter":
+                    url, key, model = ("https://openrouter.ai/api/v1/chat/completions",
+                                       config.OPENROUTER_API_KEY, config.OPENROUTER_MODEL)
+                elif proveedor == "mistral":
+                    url, key, model = ("https://api.mistral.ai/openai/v1/chat/completions",
+                                       config.MISTRAL_API_KEY, config.MISTRAL_MODEL)
+                else:
+                    url = (f"https://api.cloudflare.com/client/v4/accounts/"
+                           f"{config.CLOUDFLARE_ACCOUNT_ID}/ai/v1/chat/completions")
+                    key, model = config.CLOUDFLARE_API_TOKEN, config.CLOUDFLARE_MODEL
                 payload = {"model": model, "messages": msgs, "tools": herramientas, "tool_choice": "auto"}
-                if proveedor == "groq":
+                if proveedor in ("groq", "gemini"):
                     payload["reasoning_effort"] = "low"
-                elif proveedor == "gemini":
-                    payload["reasoning_effort"] = "low"
-                r = requests.post(url, headers={"Authorization": f"Bearer {key}"}, json=payload, timeout=90)
+                headers = {"Authorization": f"Bearer {key}"}
+                if proveedor == "openrouter":
+                    headers["X-Title"] = "Jarvis"
+                r = requests.post(url, headers=headers, json=payload, timeout=90)
             else:
                 payload = {
                     "model": config.MODEL, "messages": msgs, "tools": herramientas, "stream": False,
@@ -119,14 +168,23 @@ def responder(texto: str) -> str:
                 if r.status_code == 400 and "think" in r.text.lower():
                     payload.pop("think")
                     r = requests.post(config.OLLAMA_URL, json=payload, timeout=300)
+            if proveedor != "local" and (
+                r.status_code in (401, 402, 403, 429) or r.status_code >= 500 or
+                (r.status_code == 400 and any(p in r.text.lower() for p in ("invalid api key", "api_key_invalid", "please pass a valid api key")))
+            ):
+                proveedores_fallidos.add(proveedor)
+                siguiente = siguiente_proveedor()
+                if siguiente:
+                    proveedor_actual = siguiente
+                    continue
             if r.status_code == 400 and not usar_todas and "not in request.tools" in r.text:
                 usar_todas = True  # el modelo eligió una herramienta fuera de la selección: reintentar con todas
                 continue
             r.raise_for_status()
-            m = r.json()["choices"][0]["message"] if proveedor in ("gemini", "groq") else r.json()["message"]
-            # Gemini OpenAI compatibility may return null content for tool-only turns;
-            # its next request requires a string in the assistant message.
-            if proveedor == "gemini" and m.get("tool_calls") and m.get("content") is None:
+            m = r.json()["choices"][0]["message"] if proveedor in ("gemini", "groq", "openrouter", "mistral", "cloudflare") else r.json()["message"]
+            # OpenAI-compatible providers may return null content for tool-only turns;
+            # their next request requires a string in the assistant message.
+            if proveedor in ("gemini", "groq", "openrouter", "mistral", "cloudflare") and m.get("tool_calls") and m.get("content") is None:
                 m["content"] = "[Llamada a herramienta]"
             msgs.append(m)
             llamadas = m.get("tool_calls")
@@ -146,26 +204,56 @@ def responder(texto: str) -> str:
                 except Exception as e:
                     res = f"Error en {nombre}: {e}"
                 tool_msg = {"role": "tool", "content": str(res)}
-                if proveedor in ("gemini", "groq"):
+                if proveedor in ("gemini", "groq", "openrouter", "mistral", "cloudflare"):
                     tool_msg.update({"tool_call_id": c.get("id", ""), "name": nombre})
                 msgs.append(tool_msg)
         else:
             out = "Me quedé sin pasos para completar eso."
     except requests.ConnectionError:
-        proveedor = getattr(config, "PROVEEDOR_ACTUAL", "local")
+        proveedor = proveedor_actual
         out = "No puedo conectar con Ollama. ¿Está abierto? Ejecuta ollama serve." if proveedor == "local" else f"No pude conectar con la API de {proveedor.title()}. Revisa tu conexión."
     except requests.HTTPError as e:
-        proveedor = getattr(config, "PROVEEDOR_ACTUAL", "local")
+        proveedor = proveedor_actual
         if proveedor == "local":
             out = f"Ollama respondió con error ({e.response.status_code}). Revisa que el modelo '{config.MODEL}' exista con ollama list."
         else:
+            codigo = None
             try:
-                detalle = e.response.json().get("error", {}).get("message", "")
+                cuerpo = e.response.json()
+                error = cuerpo.get("error", "")
+                if isinstance(error, dict):
+                    detalle = error.get("message", "")
+                    codigo = error.get("code")
+                else:
+                    detalle = str(error) if error else ""
+                errores = cuerpo.get("errors", [])
+                if isinstance(errores, list) and errores:
+                    detalle = "; ".join(
+                        str(item.get("message", item)) if isinstance(item, dict) else str(item)
+                        for item in errores
+                    )
+                    if isinstance(errores[0], dict):
+                        codigo = errores[0].get("code", codigo)
+                if not detalle and cuerpo.get("messages"):
+                    detalle = "; ".join(str(x) for x in cuerpo["messages"])
             except Exception:
                 detalle = e.response.text[:300]
+            if proveedor == "cloudflare" and e.response.status_code == 403:
+                if str(codigo) == "5035":
+                    detalle = "Cloudflare indica que este modelo requiere el plan Workers Paid; este uso podría generar cargos."
+                elif str(codigo) == "10000":
+                    detalle = "El token no tiene permiso Account > Workers AI > Read. Crea o ajusta un token con ese permiso."
+                elif not detalle:
+                    detalle = "Cloudflare denegó el acceso. Revisa el Account ID y que el token tenga permiso Account > Workers AI > Read."
+            elif proveedor == "cloudflare" and e.response.status_code == 429 and not detalle:
+                detalle = "Se agotó la asignación diaria gratuita de Cloudflare o hay demasiadas solicitudes; inténtalo después del reinicio diario."
             sufijo = f": {detalle[:300]}" if detalle else ". Revisa la clave, el modelo y el límite de uso."
             out = f"La API de {proveedor.title()} respondió con error ({e.response.status_code}){sufijo}"
     except Exception as e:
         out = f"Error: {e}"
+    if proveedor_actual != proveedor_inicial:
+        nombres = {"groq": "Groq", "openrouter": "OpenRouter", "cloudflare": "Cloudflare",
+                   "gemini": "Gemini", "local": "Ollama"}
+        out = f"Respondí con {nombres.get(proveedor_actual, proveedor_actual)} porque {proveedor_inicial.title()} no estaba disponible para esta solicitud. {out}"
     memory.guardar_chat("user", texto); memory.guardar_chat("assistant", out)
     return out

@@ -24,8 +24,15 @@ OLLAMA_URL = "http://localhost:11434/api/chat"
 MODEL = "qwen3.5:4b"          # tu modelo de Ollama (mira `ollama list`)
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
-GEMINI_MODEL = "gemini-3.8-flash"
-GROQ_MODEL = "openai/gpt-oss-20b"
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
+OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "openrouter/free")
+MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY", "")
+MISTRAL_MODEL = os.getenv("MISTRAL_MODEL", "codestral-latest")
+CLOUDFLARE_ACCOUNT_ID = os.getenv("CLOUDFLARE_ACCOUNT_ID", "")
+CLOUDFLARE_API_TOKEN = os.getenv("CLOUDFLARE_API_TOKEN", "")
+CLOUDFLARE_MODEL = "@cf/zai-org/glm-5.3"
+GEMINI_MODEL = "gemini-4-hydrogen"
+GROQ_MODEL = "openai/gpt-oss-120b"
 GROQ_VISION_MODEL = "qwen/qwen3.8-27b"
 TIMEZONE = "America/Bogota"
 

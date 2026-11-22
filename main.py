@@ -25,7 +25,7 @@ def elegir_proveedor():
     """Pide el modo de IA antes de iniciar escucha y bandeja."""
     ventana = tk.Toplevel(root)
     ventana.title("Iniciar Jarvis")
-    ventana.geometry("390x205")
+    ventana.geometry("760x205")
     ventana.resizable(False, False)
     ventana.configure(bg="#0b1220")
     # La ventana raíz empieza oculta; no hacerla transient de esa raíz porque
@@ -43,8 +43,10 @@ def elegir_proveedor():
         elegido["valor"] = nombre
         ventana.destroy()
 
-    for nombre, etiqueta in (("local", "Local (Ollama)"), ("gemini", "Gemini"), ("groq", "Groq")):
-        tk.Button(fila, text=etiqueta, command=lambda n=nombre: seleccionar(n), width=13,
+    for nombre, etiqueta in (("local", "Local (Ollama)"), ("gemini", "Gemini"),
+                             ("groq", "Groq"), ("openrouter", "OpenRouter gratis"),
+                             ("mistral", "Mistral"), ("cloudflare", "Cloudflare gratis")):
+        tk.Button(fila, text=etiqueta, command=lambda n=nombre: seleccionar(n), width=14,
                   bg="#111a2e", fg="white", activebackground="#164e63", relief="flat",
                   padx=5, pady=9).pack(side="left", padx=5)
     ventana.protocol("WM_DELETE_WINDOW", lambda: seleccionar("local"))
@@ -55,8 +57,60 @@ def elegir_proveedor():
     ventana.grab_set()
     root.wait_window(ventana)
     proveedor = elegido["valor"] or "local"
-    if proveedor in ("gemini", "groq"):
-        atributo = "GEMINI_API_KEY" if proveedor == "gemini" else "GROQ_API_KEY"
+    if proveedor == "cloudflare" and (not config.CLOUDFLARE_ACCOUNT_ID or not config.CLOUDFLARE_API_TOKEN):
+        dialogo = tk.Toplevel(root)
+        dialogo.title("Cloudflare Workers AI")
+        dialogo.geometry("500x240")
+        dialogo.resizable(False, False)
+        dialogo.configure(bg="#0b1220")
+        dialogo.attributes("-topmost", True)
+        tk.Label(dialogo, text="Configura Cloudflare Workers AI", bg="#0b1220", fg="white",
+                 font=("Segoe UI", 11, "bold")).pack(pady=(14, 8))
+        tk.Label(dialogo, text="ID de cuenta:", bg="#0b1220", fg="#cbd5e1").pack(anchor="w", padx=20)
+        campo_cuenta = tk.Entry(dialogo, width=62, bg="#111a2e", fg="white", insertbackground="white")
+        campo_cuenta.pack(padx=20, fill="x", ipady=4)
+        campo_cuenta.insert(0, config.CLOUDFLARE_ACCOUNT_ID)
+        tk.Label(dialogo, text="Token API (permiso Workers AI: Read):", bg="#0b1220", fg="#cbd5e1").pack(anchor="w", padx=20, pady=(8, 0))
+        campo_token = tk.Entry(dialogo, show="*", width=62, bg="#111a2e", fg="white", insertbackground="white")
+        campo_token.pack(padx=20, fill="x", ipady=4)
+        campo_token.insert(0, config.CLOUDFLARE_API_TOKEN)
+        resultado = {"cuenta": None, "token": None}
+        botones = tk.Frame(dialogo, bg="#0b1220")
+        botones.pack(pady=12)
+
+        def aceptar_cloudflare():
+            cuenta, token = campo_cuenta.get().strip(), campo_token.get().strip()
+            if cuenta and token:
+                resultado.update(cuenta=cuenta, token=token)
+            dialogo.destroy()
+
+        tk.Button(botones, text="Guardar", command=aceptar_cloudflare, bg="#164e63", fg="white",
+                  relief="flat", padx=14, pady=6).pack(side="left", padx=5)
+        tk.Button(botones, text="Usar local", command=dialogo.destroy, bg="#111a2e", fg="white",
+                  relief="flat", padx=12, pady=6).pack(side="left", padx=5)
+        dialogo.protocol("WM_DELETE_WINDOW", dialogo.destroy)
+        dialogo.update_idletasks()
+        dialogo.deiconify()
+        dialogo.lift()
+        campo_cuenta.focus_set()
+        dialogo.grab_set()
+        root.wait_window(dialogo)
+        if resultado["cuenta"] and resultado["token"]:
+            config.CLOUDFLARE_ACCOUNT_ID = resultado["cuenta"]
+            config.CLOUDFLARE_API_TOKEN = resultado["token"]
+            ruta_env = Path(__file__).with_name(".env")
+            lineas = ruta_env.read_text(encoding="utf-8").splitlines() if ruta_env.exists() else []
+            for nombre, valor in (("CLOUDFLARE_ACCOUNT_ID", resultado["cuenta"]),
+                                  ("CLOUDFLARE_API_TOKEN", resultado["token"])):
+                prefijo = nombre + "="
+                lineas = [linea for linea in lineas if not linea.strip().startswith(prefijo)]
+                lineas.append(f"{nombre}={valor}")
+            ruta_env.write_text("\n".join(lineas) + "\n", encoding="utf-8")
+        else:
+            proveedor = "local"
+    elif proveedor in ("gemini", "groq", "openrouter", "mistral"):
+        atributo = {"gemini": "GEMINI_API_KEY", "groq": "GROQ_API_KEY",
+                    "openrouter": "OPENROUTER_API_KEY", "mistral": "MISTRAL_API_KEY"}[proveedor]
         if not getattr(config, atributo, ""):
             dialogo = tk.Toplevel(root)
             dialogo.title(f"Clave API de {proveedor.title()}")

@@ -8,13 +8,18 @@
 4. Ejecuta: `python main.py`
 
 ## Elegir el motor de IA
-Al iniciar Jarvis aparece una ventana para elegir **Local (Ollama)**, **Gemini** o **Groq**. La selección se hace en cada inicio.
+Al iniciar Jarvis aparece una ventana para elegir **Local (Ollama)**, **Gemini**, **Groq**, **OpenRouter gratis**, **Mistral** o **Cloudflare Workers AI**. La selección se hace en cada inicio.
 
 - Gemini: crea una clave en [Google AI Studio](https://aistudio.google.com/apikey). Jarvis usa `gemini-3.8-flash`, con uso gratis y capacidades para agentes. Los modelos Gemini 2.5 tienen acceso restringido para proyectos nuevos.
 - Groq: crea una clave en [Groq Console](https://console.groq.com/keys) usando el plan **Free**. Jarvis usa `openai/gpt-oss-20b`, disponible con llamadas a herramientas. El plan Free tiene límites de uso; si los alcanzas, la API rechaza solicitudes. No cambies al plan Developer si quieres mantenerlo gratis.
-- Al elegir un proveedor API por primera vez, Jarvis pide la clave y la guarda en `.env`, que está excluido de Git. También puedes copiar `.env.example` a `.env` y pegar ambas claves allí; así ya podrás alternar entre ellas en la ventana inicial.
+- OpenRouter gratis: crea una clave en [OpenRouter](https://openrouter.ai/settings/keys). Jarvis usa `openrouter/free`, que escoge un modelo gratuito compatible con herramientas e imágenes cuando esté disponible. La capa gratuita tiene límites de uso y disponibilidad variables; consulta sus [límites actuales](https://openrouter.ai/docs/api-reference/limits).
+- Mistral: Jarvis usa la API directa de Mistral con `mistral-small-latest`. Agrega tu clave en `MISTRAL_API_KEY`. La API para desarrolladores requiere activar facturación y puede generar cargos; el modo gratuito de Mistral no incluye acceso a su API.
+- Cloudflare Workers AI: crea un token con permiso **Workers AI: Read** y ten a mano el **Account ID** de Cloudflare. Al elegirlo, Jarvis los pide y guarda como `CLOUDFLARE_API_TOKEN` y `CLOUDFLARE_ACCOUNT_ID` en `.env`. Usa `@cf/openai/gpt-oss-20b`, compatible con herramientas. El plan gratuito incluye 10.000 Neurons diarios; el límite se reinicia a las 00:00 UTC. Este modelo solo acepta texto, no analiza capturas de pantalla.
+- Al elegir un proveedor API por primera vez, Jarvis pide la clave y la guarda en `.env`, que está excluido de Git. También puedes colocar las claves manualmente allí para alternar entre proveedores.
 
-Las claves son independientes: `GEMINI_API_KEY` y `GROQ_API_KEY`. No compartas ni subas `.env` al repositorio.
+Las claves son independientes: `GEMINI_API_KEY`, `GROQ_API_KEY`, `OPENROUTER_API_KEY`, `MISTRAL_API_KEY` y `CLOUDFLARE_API_TOKEN`; Cloudflare también necesita `CLOUDFLARE_ACCOUNT_ID`. No compartas ni subas `.env` al repositorio.
+
+Si el proveedor elegido rechaza una solicitud por cuota, credenciales, capacidad o error del servicio, Jarvis intenta automáticamente otros proveedores configurados (OpenRouter, Cloudflare, Gemini, Groq y Ollama). Mistral directo solo se usa si lo eliges, para evitar cargos inesperados. El respaldo respeta las capacidades de cada modelo; por ejemplo, omite los modelos de solo texto al analizar una captura.
 
 ## Novedades
 - **Conversación continua**: dices «Hola Jarvis» una vez y sigue escuchando sin repetirlo. Para terminar: «adiós Jarvis», «eso es todo» o «descansa». Si quieres que vuelva solo a reposo tras X segundos de silencio, pon `CONVERSATION_TIMEOUT = 120` en `config_local.py`.
