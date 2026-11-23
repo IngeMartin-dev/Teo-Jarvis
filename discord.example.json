@@ -1,5 +1,5 @@
 {
-  "_ayuda": "Destinos de Discord. 'usuarios' son mensajes directos: pon el usuario exacto de Discord. 'canales' son canales de un servidor: 'servidor' es opcional (si lo pones, Jarvis comprueba que se abrió ese servidor) y 'webhook' es opcional (con webhook Jarvis envía sin abrir Discord, es lo más fiable: Ajustes del canal > Integraciones > Webhooks > Nuevo webhook > Copiar URL). 'alias' son otros nombres con los que lo llamas. Los elementos con \"ejemplo\": true son de muestra y Jarvis no les envía nada: pon los datos reales y borra esa línea. Las claves que empiezan con _ se ignoran.",
+  "_ayuda": "Destinos de Discord. 'usuarios' son mensajes directos: pon el usuario exacto de Discord. 'canales' son canales de un servidor: 'servidor' es opcional (si lo pones, Jarvis comprueba que se abrió ese servidor) y 'webhook' es opcional (con webhook Jarvis envía sin abrir Discord, es lo más fiable: Ajustes del canal > Integraciones > Webhooks > Nuevo webhook > Copiar URL). 'salas' son canales de voz (llamadas) por nombre, opcional. 'alias' son otros nombres con los que lo llamas. Los elementos con \"ejemplo\": true son de muestra y Jarvis no les envía nada: pon los datos reales y borra esa línea. Las claves que empiezan con _ se ignoran.",
 
   "usuarios": {
     "Contacto de Prueba": {
@@ -10,6 +10,14 @@
     "Mamá": {
       "alias": ["mami", "mama"],
       "usuario": "mama_usuario",
+      "ejemplo": true
+    }
+  },
+
+  "salas": {
+    "Sala 1": {
+      "alias": ["la sala", "voz"],
+      "servidor": "Mi Servidor",
       "ejemplo": true
     }
   },

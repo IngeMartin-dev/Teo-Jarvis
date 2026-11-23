@@ -11,6 +11,9 @@ Cómo se envía:
   chat correcto (y el servidor, si lo indicaste); si no puede comprobarlo, NO envía.
 - Si el nombre no está en discord.json se intenta igual (webhook DISCORD_WEBHOOK_<NOMBRE> del .env o búsqueda directa en Discord).
 
+Llamadas: unirse_llamada_discord(sala) entra a un canal de voz por su nombre (Ctrl+K con «!»). Las salas pueden listarse en la sección
+«salas» de discord.json ({"Sala 1": {"servidor": "Mi Servidor", "alias": [...]}}), pero no es obligatorio.
+
 Opciones (config_local.py): PERMISOS = {"discord": False} lo apaga; DISCORD_VERIFICAR_TITULO = False desactiva la comprobación del
 título (solo si tu Discord no muestra el nombre del chat en la ventana).
 """
@@ -49,7 +52,7 @@ def cargar() -> dict:
     """{"usuarios": {...}, "canales": {...}}. Lanza ValueError con un mensaje claro si el JSON está mal."""
     asegurar_archivo()
     f = archivo()
-    vacio = {"usuarios": {}, "canales": {}}
+    vacio = {"usuarios": {}, "canales": {}, "salas": {}}
     if not f.exists():
         return vacio
     try:
@@ -199,6 +202,51 @@ def enviar_discord(destino: str, mensaje: str, tipo: str = "") -> str:
     return _por_escritorio(destino, mensaje, tipo)
 
 
+# ------------------------------ Llamadas (canales de voz) ------------------------------
+def unirse_llamada_discord(sala: str, servidor: str = "") -> str:
+    """Entra a un canal de voz de Discord por su nombre, usando Discord Desktop (Ctrl+K con «!»)."""
+    if (m := _permiso("discord")) or (m := _permiso("control_pc")):
+        return m
+    import tools, tools_pc
+    sala = sala.strip().lstrip("!#🔊 ").strip()
+    if not sala or len(sala) > 80:
+        return "Dime el nombre de la sala de voz."
+    try:
+        cands = [(n, d) for n, d in cargar()["salas"].items() if apps_index._norm(sala) in _nombres_norm(n, d)]
+    except ValueError as e:
+        return str(e)
+    if len(cands) > 1:
+        return f"Hay varias salas en discord.json que coinciden con «{sala}»: {', '.join(n for n, _ in cands[:6])}. Dime cuál."
+    if cands:
+        nombre, d = cands[0]
+        if d.get("ejemplo"):
+            return f"«{nombre}» en discord.json todavía es de ejemplo. Pon los datos reales y borra la línea \"ejemplo\": true."
+        sala, servidor = nombre, servidor.strip() or str(d.get("servidor", "") or "").strip()
+    try:
+        tools.abrir_app("discord")
+        if not _discord_al_frente():
+            return "No pude abrir Discord Desktop o no se puso al frente. ¿Está instalado y con la sesión iniciada?"
+        time.sleep(2.0)
+        pg = tools_pc._pg()
+        pg.hotkey("ctrl", "k"); time.sleep(0.7)
+        tools_pc._pegar("!" + sala); time.sleep(1.4)      # «!» busca solo canales de voz
+        pg.press("enter"); time.sleep(2.0)
+        titulo, exe = tools_pc._ventana()
+        if "discord" not in titulo.lower() and "discord" not in exe:
+            return "Discord dejó de estar al frente; no pude confirmar la llamada."
+        tn = apps_index._norm(titulo)
+        if getattr(config, "DISCORD_VERIFICAR_TITULO", True):
+            if apps_index._norm(sala) not in tn:
+                return (f"No pude confirmar que se abrió la sala «{sala}» (la ventana dice «{titulo}»). Revisa que el nombre sea exacto "
+                        "y mira en Discord si entró.")
+            if servidor and apps_index._norm(servidor) not in tn:
+                return (f"Abrí una sala llamada «{sala}», pero no veo el servidor «{servidor}» en la ventana («{titulo}»). "
+                        "Puede ser de otro servidor; revísalo en Discord.")
+        return f"Entré a la sala de voz «{sala}» en Discord."
+    except Exception as e:
+        return f"No pude entrar a la llamada de Discord: {e}"
+
+
 # ------------------------------ Consultar y guardar ------------------------------
 def buscar_discord(nombre: str = "") -> str:
     """Sin nombre: lista usuarios y canales. Con nombre: dice qué tiene guardado (los webhooks nunca se muestran)."""
@@ -286,6 +334,8 @@ SPEC = [
     _t("enviar_discord", "Envía un mensaje a Discord de inmediato, sin pedir confirmación. destino = nombre (o alias) de un usuario o canal "
                          "de discord.json, tal como lo dijo el usuario; tipo = usuario o canal solo si el usuario lo aclara",
        {"destino": S, "mensaje": S, "tipo": _TIPO}, ["destino", "mensaje"]),
+    _t("unirse_llamada_discord", "Entra a una llamada (canal de voz) de Discord por el nombre de la sala. servidor solo si el usuario lo dice",
+       {"sala": S, "servidor": S}, ["sala"]),
     _t("buscar_discord", "Lista los usuarios y canales de Discord guardados, o dice qué tiene guardado uno. No hace falta para enviar", {"nombre": S}, []),
     _t("guardar_discord", "Guarda o actualiza un usuario (con su usuario exacto de Discord) o un canal (con servidor opcional) en discord.json. "
                           "Solo con datos que el usuario escribió en su mensaje",
