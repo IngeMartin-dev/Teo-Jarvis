@@ -5,6 +5,10 @@ discord.example.json. Estructura:
     {"usuarios": {"Mamá": {"alias": ["mami"], "usuario": "mama_usuario"}},
      "canales":  {"general": {"servidor": "Mi Servidor", "webhook": "https://discord.com/api/webhooks/..."}}}
 
+Alias: lo que tú dices («bolso», «Sala 1») es solo un nombre para elegir la entrada; a Discord SIEMPRE se le busca el nombre real:
+  usuario → campo "usuario" (y "nombre" / "nombre_visible" = cómo se ve en el chat, para verificar); canal o sala → campo "nombre" (o la clave).
+  Ej.: "Sala 1": {"nombre": "general", "servidor": "Mi Servidor"} → «únete a sala uno» entra al canal de voz «general».
+
 Cómo se envía:
 - Canal con "webhook": directo por internet, sin abrir Discord (lo más fiable; los mensajes salen sin menciones @everyone/@usuario).
 - Usuario, o canal sin webhook: por Discord Desktop (Ctrl+K). Antes de escribir comprueba por el título de la ventana que se abrió el
@@ -20,7 +24,16 @@ título (solo si tu Discord no muestra el nombre del chat en la ventana).
 import json, os, re, shutil, time
 from pathlib import Path
 import requests
+import difflib
 import apps_index, config
+
+_NUM = {"cero": "0", "uno": "1", "una": "1", "dos": "2", "tres": "3", "cuatro": "4", "cinco": "5",
+        "seis": "6", "siete": "7", "ocho": "8", "nueve": "9", "diez": "10"}
+
+
+def _n(x: str) -> str:
+    """Normaliza para comparar: sin mayúsculas ni tildes, y «sala uno» = «sala 1»."""
+    return " ".join(_NUM.get(p, p) for p in apps_index._norm(str(x)).split())
 
 _AQUI = Path(__file__).parent
 EJEMPLO = _AQUI / "discord.example.json"
@@ -83,7 +96,7 @@ def cargar() -> dict:
                     continue
                 e = dict(d)
                 e["servidor"] = sn
-                e["_nombre"] = n
+                e["_nombre"] = str(d.get("nombre") or n)
                 e["_srv_alias"] = _alias(sd)
                 e["alias"] = _alias(d) + [n]   # el nombre suelto también la encuentra
                 if sd.get("ejemplo"):
@@ -92,12 +105,50 @@ def cargar() -> dict:
     return res
 
 
+def _real(nombre: str, d: dict) -> str:
+    """Nombre REAL en Discord: el campo «nombre» si existe; si no, el de la clave. El alias dicho por el usuario nunca se busca."""
+    return str(d.get("nombre") or d.get("_nombre") or nombre).strip()
+
+
+def _servidores_conocidos() -> dict:
+    """{nombre_servidor: [alias]} a partir de discord.json."""
+    res = {}
+    try:
+        datos = cargar()
+        for cat in ("canales", "salas"):
+            for d in datos[cat].values():
+                if d.get("servidor"):
+                    res.setdefault(str(d["servidor"]), []).extend(d.get("_srv_alias", []))
+    except ValueError:
+        pass
+    return res
+
+
+def _resolver_servidor(servidor: str):
+    """(nombre_canónico, mensaje_error). Acepta alias y escrituras parecidas (el reconocimiento de voz falla: «pppoe causas» ≈ «tp causas»)."""
+    conocidos = _servidores_conocidos()
+    if not servidor.strip() or not conocidos:
+        return servidor.strip(), None
+    q = _n(servidor)
+    for nombre, alias in conocidos.items():
+        if q in {_n(x) for x in [nombre] + alias}:
+            return nombre, None
+    puntaje = []
+    for nombre, alias in conocidos.items():
+        mejor = max(difflib.SequenceMatcher(None, q, _n(x)).ratio() for x in [nombre] + alias)
+        puntaje.append((mejor, nombre))
+    puntaje.sort(reverse=True)
+    if puntaje[0][0] >= 0.6 and (len(puntaje) == 1 or puntaje[0][0] - puntaje[1][0] >= 0.1):
+        return puntaje[0][1], None
+    return None, f"No tengo el servidor «{servidor}» en discord.json. Tengo: {', '.join(conocidos)}."
+
+
 def _del_servidor(d: dict, servidor: str) -> bool:
     """¿Esta entrada es del servidor indicado (por su nombre o alias)? Sin servidor indicado, siempre sí."""
     if not servidor.strip():
         return True
-    q = apps_index._norm(servidor)
-    return q in {apps_index._norm(x) for x in [str(d.get("servidor", ""))] + list(d.get("_srv_alias", []))}
+    q = _n(servidor)
+    return q in {_n(x) for x in [str(d.get("servidor", ""))] + list(d.get("_srv_alias", []))}
 
 
 def _alias(d: dict) -> list:
@@ -108,12 +159,12 @@ def _alias(d: dict) -> list:
 def _nombres_norm(nombre: str, d: dict) -> set:
     """Nombre, alias y también el usuario exacto de Discord (decir «niko» sirve si su usuario es niko)."""
     extra = [d["usuario"]] if isinstance(d.get("usuario"), str) else []
-    return {apps_index._norm(x) for x in [nombre] + _alias(d) + extra if apps_index._norm(x)}
+    return {_n(x) for x in [nombre] + _alias(d) + extra if _n(x)}
 
 
 def _buscar(nombre: str, tipo: str = "") -> list:
     """[(categoria, nombre, datos)]. Nombre o alias completo; sin adivinar. Con '#' o '@' al inicio fija el tipo."""
-    q = apps_index._norm(nombre.lstrip("@#"))
+    q = _n(nombre.lstrip("@#"))
     if not q:
         return []
     datos = cargar()
@@ -135,7 +186,7 @@ def _webhooks() -> dict:
     res = {}
     for k, v in os.environ.items():
         if k.upper().startswith("DISCORD_WEBHOOK_") and v.strip():
-            res[apps_index._norm(k[len("DISCORD_WEBHOOK_"):].replace("_", " "))] = v.strip()
+            res[_n(k[len("DISCORD_WEBHOOK_"):].replace("_", " "))] = v.strip()
     return res
 
 
@@ -185,12 +236,12 @@ def _por_escritorio(destino: str, mensaje: str, tipo: str, servidor: str = "", t
             titulo, exe = tools_pc._ventana()
             if "discord" not in titulo.lower() and "discord" not in exe:
                 return "Discord dejó de estar al frente; no envié nada."
-            tn = apps_index._norm(titulo)
+            tn = _n(titulo)
             otros = [tambien] if isinstance(tambien, str) else list(tambien or [])
-            if apps_index._norm(limpio) not in tn and not any(apps_index._norm(x) and apps_index._norm(x) in tn for x in otros):
+            if _n(limpio) not in tn and not any(_n(x) and _n(x) in tn for x in otros):
                 return (f"No pude confirmar que se abrió el chat de «{limpio}» (la ventana dice «{titulo}»), así que no envié nada para "
                         "no mandarlo a la persona o canal equivocado. Revisa el nombre exacto en discord.json.")
-            if servidor and apps_index._norm(servidor) not in apps_index._norm(titulo):
+            if servidor and _n(servidor) not in _n(titulo):
                 return (f"No pude confirmar que sea el servidor «{servidor}» (la ventana dice «{titulo}»), así que no envié nada. "
                         "Si tu Discord no muestra el servidor en la ventana, borra el campo «servidor» de ese canal en discord.json.")
         tools_pc._pegar(mensaje); time.sleep(0.4)
@@ -210,6 +261,10 @@ def enviar_discord(destino: str, mensaje: str, tipo: str = "", servidor: str = "
     if len(mensaje) > 2000:
         return "Discord solo permite mensajes de hasta 2000 caracteres; acórtalo."
     try:
+        if servidor.strip():
+            servidor, err = _resolver_servidor(servidor)
+            if err:
+                return err
         cands = _buscar(destino, tipo)
         if servidor.strip():
             cands = [c for c in cands if c[0] == "canales" and _del_servidor(c[2], servidor)]
@@ -226,15 +281,15 @@ def enviar_discord(destino: str, mensaje: str, tipo: str = "", servidor: str = "
             return (f"«{nombre}» en discord.json todavía es de ejemplo. Pon los datos reales y borra la línea \"ejemplo\": true.")
         if cat == "canales":
             hook = str(d.get("webhook", "") or "").strip()
-            real = d.get("_nombre", nombre)
+            real = _real(nombre, d)
             if hook:
                 return _por_webhook(hook, mensaje, real)
             return _por_escritorio(real, mensaje, "canal", str(d.get("servidor", "") or "").strip())
         return _por_escritorio(str(d.get("usuario", "") or "").strip() or nombre, mensaje, "usuario",
-                                 tambien=[nombre, destino] + _alias(d))
+                                 tambien=[d.get("nombre"), d.get("nombre_visible")])
     # No está en discord.json: webhook del .env (compatibilidad) o búsqueda directa en Discord Desktop
     hooks = _webhooks()
-    clave = apps_index._norm(destino.lstrip("#"))
+    clave = _n(destino.lstrip("#"))
     if clave in hooks and tipo != "usuario":
         return _por_webhook(hooks[clave], mensaje, destino.lstrip("#"))
     return _por_escritorio(destino, mensaje, tipo)
@@ -249,9 +304,13 @@ def unirse_llamada_discord(sala: str, servidor: str = "") -> str:
     sala = sala.strip().lstrip("!#🔊 ").strip()
     if not sala or len(sala) > 80:
         return "Dime el nombre de la sala de voz."
+    if servidor.strip():
+        servidor, err = _resolver_servidor(servidor)
+        if err:
+            return err
     try:
         cands = [(n, d) for n, d in cargar()["salas"].items()
-                 if apps_index._norm(sala) in _nombres_norm(n, d) and _del_servidor(d, servidor)]
+                 if _n(sala) in _nombres_norm(n, d) and _del_servidor(d, servidor)]
     except ValueError as e:
         return str(e)
     if len(cands) > 1:
@@ -260,7 +319,7 @@ def unirse_llamada_discord(sala: str, servidor: str = "") -> str:
         nombre, d = cands[0]
         if d.get("ejemplo"):
             return f"«{nombre}» en discord.json todavía es de ejemplo. Pon los datos reales y borra la línea \"ejemplo\": true."
-        sala, servidor = d.get("_nombre", nombre), str(d.get("servidor", "") or "").strip() or servidor.strip()
+        sala, servidor = _real(nombre, d), str(d.get("servidor", "") or "").strip() or servidor.strip()
     try:
         tools.abrir_app("discord")
         if not _discord_al_frente():
@@ -273,12 +332,12 @@ def unirse_llamada_discord(sala: str, servidor: str = "") -> str:
         titulo, exe = tools_pc._ventana()
         if "discord" not in titulo.lower() and "discord" not in exe:
             return "Discord dejó de estar al frente; no pude confirmar la llamada."
-        tn = apps_index._norm(titulo)
+        tn = _n(titulo)
         if getattr(config, "DISCORD_VERIFICAR_TITULO", True):
-            if apps_index._norm(sala) not in tn:
+            if _n(sala) not in tn:
                 return (f"No pude confirmar que se abrió la sala «{sala}» (la ventana dice «{titulo}»). Revisa que el nombre sea exacto "
                         "y mira en Discord si entró.")
-            if servidor and apps_index._norm(servidor) not in tn:
+            if servidor and _n(servidor) not in tn:
                 return (f"Abrí una sala llamada «{sala}», pero no veo el servidor «{servidor}» en la ventana («{titulo}»). "
                         "Puede ser de otro servidor; revísalo en Discord.")
         return f"Entré a la sala de voz «{sala}» en Discord."

@@ -1,5 +1,5 @@
 {
-  "_ayuda": "Destinos de Discord. 'servidores': tú escribes cada servidor y dentro sus 'canales' (donde escribe Jarvis) y 'salas' (canales de voz a los que se une). Cada canal puede tener 'webhook' (opcional; con webhook Jarvis envía sin abrir Discord: Ajustes del canal > Integraciones > Webhooks > Nuevo webhook > Copiar URL). Así dices «escribe en general de Mi Servidor» o «entra a la sala Gamer de Mi Servidor» y no se confunde con otro servidor. 'usuarios' son mensajes directos: pon el usuario exacto de Discord. 'alias' son otros nombres con los que lo llamas. Los elementos con \"ejemplo\": true son de muestra y Jarvis no les envía nada: pon los datos reales y borra esa línea. Las claves que empiezan con _ se ignoran. (También funcionan las secciones sueltas 'canales' y 'salas' de más arriba con un campo 'servidor'.)",
+  "_ayuda": "Destinos de Discord. 'servidores': tú escribes cada servidor y dentro sus 'canales' (donde escribe Jarvis) y 'salas' (canales de voz a los que se une). Cada canal puede tener 'webhook' (opcional; con webhook Jarvis envía sin abrir Discord: Ajustes del canal > Integraciones > Webhooks > Nuevo webhook > Copiar URL). Así dices «escribe en general de Mi Servidor» o «entra a la sala Gamer de Mi Servidor» y no se confunde con otro servidor. 'usuarios' son mensajes directos: pon el usuario exacto de Discord. 'alias' son otros nombres con los que lo llamas. Los elementos con \"ejemplo\": true son de muestra y Jarvis no les envía nada: pon los datos reales y borra esa línea. Las claves que empiezan con _ se ignoran. (También funcionan las secciones sueltas 'canales' y 'salas' de más arriba con un campo 'servidor'.) ALIAS: lo que dices (clave o 'alias') solo elige la entrada; a Discord se le busca el nombre real: en usuarios el campo 'usuario' ('nombre_visible' = cómo se ve su nombre en el chat, opcional); en canales y salas el campo 'nombre' (si no lo pones, se usa la clave). Ej.: \"Sala 1\": {\"nombre\": \"general\"} hace que «sala uno» entre al canal de voz «general».",
   "servidores": {
     "Mi Servidor": {
       "alias": [
@@ -20,6 +20,7 @@
       },
       "salas": {
         "Sala 1": {
+          "nombre": "general",
           "alias": [
             "voz",
             "la sala"
@@ -44,7 +45,8 @@
         "mama"
       ],
       "usuario": "mama_usuario",
-      "ejemplo": true
+      "ejemplo": true,
+      "nombre_visible": "Mamá ❤"
     }
   }
 }
