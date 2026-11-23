@@ -106,7 +106,9 @@ def _alias(d: dict) -> list:
 
 
 def _nombres_norm(nombre: str, d: dict) -> set:
-    return {apps_index._norm(x) for x in [nombre] + _alias(d) if apps_index._norm(x)}
+    """Nombre, alias y también el usuario exacto de Discord (decir «niko» sirve si su usuario es niko)."""
+    extra = [d["usuario"]] if isinstance(d.get("usuario"), str) else []
+    return {apps_index._norm(x) for x in [nombre] + _alias(d) + extra if apps_index._norm(x)}
 
 
 def _buscar(nombre: str, tipo: str = "") -> list:
@@ -184,7 +186,8 @@ def _por_escritorio(destino: str, mensaje: str, tipo: str, servidor: str = "", t
             if "discord" not in titulo.lower() and "discord" not in exe:
                 return "Discord dejó de estar al frente; no envié nada."
             tn = apps_index._norm(titulo)
-            if apps_index._norm(limpio) not in tn and not (tambien and apps_index._norm(tambien) in tn):
+            otros = [tambien] if isinstance(tambien, str) else list(tambien or [])
+            if apps_index._norm(limpio) not in tn and not any(apps_index._norm(x) and apps_index._norm(x) in tn for x in otros):
                 return (f"No pude confirmar que se abrió el chat de «{limpio}» (la ventana dice «{titulo}»), así que no envié nada para "
                         "no mandarlo a la persona o canal equivocado. Revisa el nombre exacto en discord.json.")
             if servidor and apps_index._norm(servidor) not in apps_index._norm(titulo):
@@ -227,7 +230,8 @@ def enviar_discord(destino: str, mensaje: str, tipo: str = "", servidor: str = "
             if hook:
                 return _por_webhook(hook, mensaje, real)
             return _por_escritorio(real, mensaje, "canal", str(d.get("servidor", "") or "").strip())
-        return _por_escritorio(str(d.get("usuario", "") or "").strip() or nombre, mensaje, "usuario", tambien=nombre)
+        return _por_escritorio(str(d.get("usuario", "") or "").strip() or nombre, mensaje, "usuario",
+                                 tambien=[nombre, destino] + _alias(d))
     # No está en discord.json: webhook del .env (compatibilidad) o búsqueda directa en Discord Desktop
     hooks = _webhooks()
     clave = apps_index._norm(destino.lstrip("#"))
@@ -296,7 +300,8 @@ def buscar_discord(nombre: str = "") -> str:
     except ValueError as e:
         return str(e)
     if not cands:
-        return f"No tengo «{nombre}» en discord.json."
+        return (f"No tengo «{nombre}» en discord.json, pero enviar_discord lo busca igual directamente en Discord: "
+                "no hace falta guardarlo ni avisar al usuario; llama a enviar_discord.")
     if len(cands) > 1:
         return "Varios coinciden: " + ", ".join(f"{n} ({'canal' if c == 'canales' else 'usuario'})" for c, n, _d in cands[:6]) + "."
     cat, n, d = cands[0]
