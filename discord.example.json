@@ -1,32 +1,49 @@
 {
-  "_ayuda": "Destinos de Discord. 'usuarios' son mensajes directos: pon el usuario exacto de Discord. 'canales' son canales de un servidor: 'servidor' es opcional (si lo pones, Jarvis comprueba que se abrió ese servidor) y 'webhook' es opcional (con webhook Jarvis envía sin abrir Discord, es lo más fiable: Ajustes del canal > Integraciones > Webhooks > Nuevo webhook > Copiar URL). 'salas' son canales de voz (llamadas) por nombre, opcional. 'alias' son otros nombres con los que lo llamas. Los elementos con \"ejemplo\": true son de muestra y Jarvis no les envía nada: pon los datos reales y borra esa línea. Las claves que empiezan con _ se ignoran.",
-
+  "_ayuda": "Destinos de Discord. 'servidores': tú escribes cada servidor y dentro sus 'canales' (donde escribe Jarvis) y 'salas' (canales de voz a los que se une). Cada canal puede tener 'webhook' (opcional; con webhook Jarvis envía sin abrir Discord: Ajustes del canal > Integraciones > Webhooks > Nuevo webhook > Copiar URL). Así dices «escribe en general de Mi Servidor» o «entra a la sala Gamer de Mi Servidor» y no se confunde con otro servidor. 'usuarios' son mensajes directos: pon el usuario exacto de Discord. 'alias' son otros nombres con los que lo llamas. Los elementos con \"ejemplo\": true son de muestra y Jarvis no les envía nada: pon los datos reales y borra esa línea. Las claves que empiezan con _ se ignoran. (También funcionan las secciones sueltas 'canales' y 'salas' de más arriba con un campo 'servidor'.)",
+  "servidores": {
+    "Mi Servidor": {
+      "alias": [
+        "mi server",
+        "el server"
+      ],
+      "ejemplo": true,
+      "canales": {
+        "general": {
+          "alias": [
+            "principal"
+          ],
+          "webhook": ""
+        },
+        "avisos": {
+          "webhook": ""
+        }
+      },
+      "salas": {
+        "Sala 1": {
+          "alias": [
+            "voz",
+            "la sala"
+          ]
+        },
+        "Gamer": {}
+      }
+    }
+  },
   "usuarios": {
     "Contacto de Prueba": {
-      "alias": ["prueba", "test"],
+      "alias": [
+        "prueba",
+        "test"
+      ],
       "usuario": "usuario_de_prueba",
       "ejemplo": true
     },
     "Mamá": {
-      "alias": ["mami", "mama"],
+      "alias": [
+        "mami",
+        "mama"
+      ],
       "usuario": "mama_usuario",
-      "ejemplo": true
-    }
-  },
-
-  "salas": {
-    "Sala 1": {
-      "alias": ["la sala", "voz"],
-      "servidor": "Mi Servidor",
-      "ejemplo": true
-    }
-  },
-
-  "canales": {
-    "general": {
-      "alias": ["principal"],
-      "servidor": "Mi Servidor",
-      "webhook": "",
       "ejemplo": true
     }
   }

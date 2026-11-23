@@ -52,7 +52,7 @@ def cargar() -> dict:
     """{"usuarios": {...}, "canales": {...}}. Lanza ValueError con un mensaje claro si el JSON está mal."""
     asegurar_archivo()
     f = archivo()
-    vacio = {"usuarios": {}, "canales": {}, "salas": {}}
+    vacio = {"usuarios": {}, "canales": {}, "salas": {}}  # «servidores» se aplana en canales y salas
     if not f.exists():
         return vacio
     try:
@@ -68,7 +68,36 @@ def cargar() -> dict:
         if not isinstance(sec, dict):
             raise ValueError(f"En discord.json «{cat}» debe ser un objeto con un elemento por nombre.")
         res[cat] = {k: v for k, v in sec.items() if not k.startswith("_") and isinstance(v, dict)}
+    srvs = crudo.get("servidores", {})
+    if not isinstance(srvs, dict):
+        raise ValueError("En discord.json «servidores» debe ser un objeto con un servidor por nombre.")
+    for sn, sd in srvs.items():
+        if sn.startswith("_") or not isinstance(sd, dict):
+            continue
+        for cat in ("canales", "salas"):
+            sub = sd.get(cat, {})
+            if not isinstance(sub, dict):
+                raise ValueError(f"En discord.json, «{cat}» del servidor «{sn}» debe ser un objeto.")
+            for n, d in sub.items():
+                if n.startswith("_") or not isinstance(d, dict):
+                    continue
+                e = dict(d)
+                e["servidor"] = sn
+                e["_nombre"] = n
+                e["_srv_alias"] = _alias(sd)
+                e["alias"] = _alias(d) + [n]   # el nombre suelto también la encuentra
+                if sd.get("ejemplo"):
+                    e["ejemplo"] = True
+                res[cat][f"{n} ({sn})"] = e
     return res
+
+
+def _del_servidor(d: dict, servidor: str) -> bool:
+    """¿Esta entrada es del servidor indicado (por su nombre o alias)? Sin servidor indicado, siempre sí."""
+    if not servidor.strip():
+        return True
+    q = apps_index._norm(servidor)
+    return q in {apps_index._norm(x) for x in [str(d.get("servidor", ""))] + list(d.get("_srv_alias", []))}
 
 
 def _alias(d: dict) -> list:
@@ -168,7 +197,7 @@ def _por_escritorio(destino: str, mensaje: str, tipo: str, servidor: str = "", t
         return f"No pude enviar el mensaje por Discord: {e}"
 
 
-def enviar_discord(destino: str, mensaje: str, tipo: str = "") -> str:
+def enviar_discord(destino: str, mensaje: str, tipo: str = "", servidor: str = "") -> str:
     """Envía un mensaje a Discord AHORA MISMO (sin pedir confirmación). destino = usuario o canal de discord.json."""
     if (m := _permiso("discord")):
         return m
@@ -179,20 +208,25 @@ def enviar_discord(destino: str, mensaje: str, tipo: str = "") -> str:
         return "Discord solo permite mensajes de hasta 2000 caracteres; acórtalo."
     try:
         cands = _buscar(destino, tipo)
+        if servidor.strip():
+            cands = [c for c in cands if c[0] == "canales" and _del_servidor(c[2], servidor)]
     except ValueError as e:
         return str(e)
     if len(cands) > 1:
         lista = ", ".join(f"{n} ({'canal' if c == 'canales' else 'usuario'})" for c, n, _d in cands[:6])
         return f"Hay varios destinos en discord.json que coinciden con «{destino}»: {lista}. Dime cuál (usuario o canal)."
+    if not cands and servidor.strip():
+        return f"No encontré «{destino}» en el servidor «{servidor}» de discord.json."
     if cands:
         cat, nombre, d = cands[0]
         if d.get("ejemplo"):
             return (f"«{nombre}» en discord.json todavía es de ejemplo. Pon los datos reales y borra la línea \"ejemplo\": true.")
         if cat == "canales":
             hook = str(d.get("webhook", "") or "").strip()
+            real = d.get("_nombre", nombre)
             if hook:
-                return _por_webhook(hook, mensaje, nombre)
-            return _por_escritorio(nombre, mensaje, "canal", str(d.get("servidor", "") or "").strip())
+                return _por_webhook(hook, mensaje, real)
+            return _por_escritorio(real, mensaje, "canal", str(d.get("servidor", "") or "").strip())
         return _por_escritorio(str(d.get("usuario", "") or "").strip() or nombre, mensaje, "usuario", tambien=nombre)
     # No está en discord.json: webhook del .env (compatibilidad) o búsqueda directa en Discord Desktop
     hooks = _webhooks()
@@ -212,7 +246,8 @@ def unirse_llamada_discord(sala: str, servidor: str = "") -> str:
     if not sala or len(sala) > 80:
         return "Dime el nombre de la sala de voz."
     try:
-        cands = [(n, d) for n, d in cargar()["salas"].items() if apps_index._norm(sala) in _nombres_norm(n, d)]
+        cands = [(n, d) for n, d in cargar()["salas"].items()
+                 if apps_index._norm(sala) in _nombres_norm(n, d) and _del_servidor(d, servidor)]
     except ValueError as e:
         return str(e)
     if len(cands) > 1:
@@ -221,7 +256,7 @@ def unirse_llamada_discord(sala: str, servidor: str = "") -> str:
         nombre, d = cands[0]
         if d.get("ejemplo"):
             return f"«{nombre}» en discord.json todavía es de ejemplo. Pon los datos reales y borra la línea \"ejemplo\": true."
-        sala, servidor = nombre, servidor.strip() or str(d.get("servidor", "") or "").strip()
+        sala, servidor = d.get("_nombre", nombre), str(d.get("servidor", "") or "").strip() or servidor.strip()
     try:
         tools.abrir_app("discord")
         if not _discord_al_frente():
@@ -253,9 +288,10 @@ def buscar_discord(nombre: str = "") -> str:
     try:
         if not nombre.strip():
             d = cargar()
-            if not d["usuarios"] and not d["canales"]:
+            if not d["usuarios"] and not d["canales"] and not d["salas"]:
                 return "No hay destinos de Discord guardados todavía."
-            return f"Usuarios: {', '.join(d['usuarios']) or '—'}. Canales: {', '.join(d['canales']) or '—'}."
+            return (f"Usuarios: {', '.join(d['usuarios']) or '—'}. Canales: {', '.join(d['canales']) or '—'}. "
+                    f"Salas de voz: {', '.join(d['salas']) or '—'}.")
         cands = _buscar(nombre)
     except ValueError as e:
         return str(e)
@@ -332,8 +368,8 @@ S = {"type": "string"}
 _TIPO = {"type": "string", "enum": ["usuario", "canal"]}
 SPEC = [
     _t("enviar_discord", "Envía un mensaje a Discord de inmediato, sin pedir confirmación. destino = nombre (o alias) de un usuario o canal "
-                         "de discord.json, tal como lo dijo el usuario; tipo = usuario o canal solo si el usuario lo aclara",
-       {"destino": S, "mensaje": S, "tipo": _TIPO}, ["destino", "mensaje"]),
+                         "de discord.json, tal como lo dijo el usuario; tipo = usuario o canal solo si el usuario lo aclara; servidor solo si el usuario dice en qué servidor",
+       {"destino": S, "mensaje": S, "tipo": _TIPO, "servidor": S}, ["destino", "mensaje"]),
     _t("unirse_llamada_discord", "Entra a una llamada (canal de voz) de Discord por el nombre de la sala. servidor solo si el usuario lo dice",
        {"sala": S, "servidor": S}, ["sala"]),
     _t("buscar_discord", "Lista los usuarios y canales de Discord guardados, o dice qué tiene guardado uno. No hace falta para enviar", {"nombre": S}, []),
