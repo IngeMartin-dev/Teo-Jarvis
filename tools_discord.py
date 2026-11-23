@@ -9,6 +9,9 @@ Alias: lo que tú dices («bolso», «Sala 1») es solo un nombre para elegir la
   usuario → campo "usuario" (y "nombre" / "nombre_visible" = cómo se ve en el chat, para verificar); canal o sala → campo "nombre" (o la clave).
   Ej.: "Sala 1": {"nombre": "general", "servidor": "Mi Servidor"} → «únete a sala uno» entra al canal de voz «general».
 
+Usuarios: el usuario exacto (@weon07865) es único, así que si no pones «nombre_visible» Jarvis no comprueba el título (los nombres
+decorados no se leen bien en la ventana). Si pones «nombre_visible», sí comprueba que el chat abierto lo muestre.
+
 Cómo se envía:
 - Canal con "webhook": directo por internet, sin abrir Discord (lo más fiable; los mensajes salen sin menciones @everyone/@usuario).
 - Usuario, o canal sin webhook: por Discord Desktop (Ctrl+K). Antes de escribir comprueba por el título de la ventana que se abrió el
@@ -21,7 +24,7 @@ Llamadas: unirse_llamada_discord(sala) entra a un canal de voz por su nombre (Ct
 Opciones (config_local.py): PERMISOS = {"discord": False} lo apaga; DISCORD_VERIFICAR_TITULO = False desactiva la comprobación del
 título (solo si tu Discord no muestra el nombre del chat en la ventana).
 """
-import json, os, re, shutil, time
+import json, os, re, shutil, time, unicodedata
 from pathlib import Path
 import requests
 import difflib
@@ -33,7 +36,8 @@ _NUM = {"cero": "0", "uno": "1", "una": "1", "dos": "2", "tres": "3", "cuatro": 
 
 def _n(x: str) -> str:
     """Normaliza para comparar: sin mayúsculas ni tildes, y «sala uno» = «sala 1»."""
-    return " ".join(_NUM.get(p, p) for p in apps_index._norm(str(x)).split())
+    x = unicodedata.normalize("NFKD", str(x))   # letras decorativas (𝔦𝔫𝔦𝔨𝔬, ｉｎｉｋｏ) -> normales
+    return " ".join(_NUM.get(p, p) for p in apps_index._norm(x).split())
 
 _AQUI = Path(__file__).parent
 EJEMPLO = _AQUI / "discord.example.json"
@@ -217,7 +221,12 @@ def _discord_al_frente(segundos: float = 15) -> bool:
     return False
 
 
-def _por_escritorio(destino: str, mensaje: str, tipo: str, servidor: str = "", tambien: str = "") -> str:
+def _esp(seg: float):
+    """Pausa escalada por DISCORD_ESPERA (config_local.py): súbela (p. ej. 1.5) si tu PC o internet son lentos."""
+    time.sleep(seg * float(getattr(config, "DISCORD_ESPERA", 1.0)))
+
+
+def _por_escritorio(destino: str, mensaje: str, tipo: str, servidor: str = "", tambien: str = "", verificar: bool = True) -> str:
     import tools, tools_pc
     if (m := _permiso("control_pc")):
         return m
@@ -229,10 +238,10 @@ def _por_escritorio(destino: str, mensaje: str, tipo: str, servidor: str = "", t
             return "No pude abrir Discord Desktop o no se puso al frente. ¿Está instalado y con la sesión iniciada?"
         time.sleep(2.0)
         pg = tools_pc._pg()
-        pg.hotkey("ctrl", "k"); time.sleep(0.7)            # buscador rápido de Discord
-        tools_pc._pegar(prefijo + limpio); time.sleep(1.4)
-        pg.press("enter"); time.sleep(1.6)
-        if getattr(config, "DISCORD_VERIFICAR_TITULO", True):
+        pg.hotkey("ctrl", "k"); _esp(0.9)                  # buscador rápido de Discord
+        tools_pc._pegar(prefijo + limpio); _esp(2.6)       # esperar a que termine «Buscando a todos los usuarios»
+        pg.press("enter"); _esp(2.0)
+        if verificar and getattr(config, "DISCORD_VERIFICAR_TITULO", True):
             titulo, exe = tools_pc._ventana()
             if "discord" not in titulo.lower() and "discord" not in exe:
                 return "Discord dejó de estar al frente; no envié nada."
@@ -244,7 +253,7 @@ def _por_escritorio(destino: str, mensaje: str, tipo: str, servidor: str = "", t
             if servidor and _n(servidor) not in _n(titulo):
                 return (f"No pude confirmar que sea el servidor «{servidor}» (la ventana dice «{titulo}»), así que no envié nada. "
                         "Si tu Discord no muestra el servidor en la ventana, borra el campo «servidor» de ese canal en discord.json.")
-        tools_pc._pegar(mensaje); time.sleep(0.4)
+        tools_pc._pegar(mensaje); _esp(0.5)
         pg.press("enter")
         return f"Mensaje enviado a {prefijo}{limpio} en Discord."
     except Exception as e:
@@ -286,7 +295,8 @@ def enviar_discord(destino: str, mensaje: str, tipo: str = "", servidor: str = "
                 return _por_webhook(hook, mensaje, real)
             return _por_escritorio(real, mensaje, "canal", str(d.get("servidor", "") or "").strip())
         return _por_escritorio(str(d.get("usuario", "") or "").strip() or nombre, mensaje, "usuario",
-                                 tambien=[d.get("nombre"), d.get("nombre_visible")])
+                                 tambien=[d.get("nombre"), d.get("nombre_visible")],
+                                 verificar=bool(d.get("nombre") or d.get("nombre_visible") or not d.get("usuario")))
     # No está en discord.json: webhook del .env (compatibilidad) o búsqueda directa en Discord Desktop
     hooks = _webhooks()
     clave = _n(destino.lstrip("#"))
