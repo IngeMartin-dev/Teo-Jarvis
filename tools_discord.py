@@ -346,30 +346,47 @@ def unirse_llamada_discord(sala: str, servidor: str = "") -> str:
 
 
 # ------------------------------ Consultar y guardar ------------------------------
-def buscar_discord(nombre: str = "") -> str:
-    """Sin nombre: lista usuarios y canales. Con nombre: dice qué tiene guardado (los webhooks nunca se muestran)."""
+def buscar_discord(nombre: str = "", servidor: str = "") -> str:
+    """Sin nombre: lista lo guardado. Con nombre: dice a qué entrada de discord.json corresponde y QUÉ nombre real se buscará en
+    Discord (los webhooks nunca se muestran). Sirve para comprobar alias."""
     try:
+        d = cargar()
         if not nombre.strip():
-            d = cargar()
             if not d["usuarios"] and not d["canales"] and not d["salas"]:
-                return "No hay destinos de Discord guardados todavía."
+                return f"No hay destinos de Discord guardados todavía (archivo: {archivo()})."
             return (f"Usuarios: {', '.join(d['usuarios']) or '—'}. Canales: {', '.join(d['canales']) or '—'}. "
-                    f"Salas de voz: {', '.join(d['salas']) or '—'}.")
-        cands = _buscar(nombre)
+                    f"Salas de voz: {', '.join(d['salas']) or '—'}. (archivo: {archivo()})")
+        if servidor.strip():
+            servidor, err = _resolver_servidor(servidor)
+            if err:
+                return err
+        q = _n(nombre.lstrip("@#!"))
+        cands = [(c, n, x) for c, n, x in _buscar(nombre) if _del_servidor(x, servidor)]
+        cands += [("salas", n, x) for n, x in d["salas"].items()
+                  if q in _nombres_norm(n, x) and _del_servidor(x, servidor)]
     except ValueError as e:
         return str(e)
     if not cands:
-        return (f"No tengo «{nombre}» en discord.json, pero enviar_discord lo busca igual directamente en Discord: "
+        return (f"No tengo «{nombre}» en discord.json (archivo: {archivo()}), pero enviar_discord lo busca igual directamente en Discord: "
                 "no hace falta guardarlo ni avisar al usuario; llama a enviar_discord.")
     if len(cands) > 1:
-        return "Varios coinciden: " + ", ".join(f"{n} ({'canal' if c == 'canales' else 'usuario'})" for c, n, _d in cands[:6]) + "."
-    cat, n, d = cands[0]
-    ej = " (de ejemplo)" if d.get("ejemplo") else ""
+        tipos = {"canales": "canal", "usuarios": "usuario", "salas": "sala de voz"}
+        return "Varios coinciden: " + ", ".join(f"{n} ({tipos[c]})" for c, n, _d in cands[:6]) + ". Aclara cuál."
+    cat, n, x = cands[0]
+    ej = " (de ejemplo: no se usa hasta que borres \"ejemplo\": true)" if x.get("ejemplo") else ""
+    srv = f" del servidor «{x['servidor']}»" if x.get("servidor") else ""
     if cat == "usuarios":
-        return f"{n}: usuario de Discord «{d.get('usuario', n)}»{ej}."
-    extra = [f"servidor «{d['servidor']}»"] if d.get("servidor") else []
-    extra.append("con webhook" if str(d.get("webhook", "") or "").strip() else "sin webhook (se envía por Discord Desktop)")
-    return f"Canal {n}: {', '.join(extra)}{ej}."
+        return f"«{nombre}» = {n}: en Discord se busca el usuario «@{x.get('usuario', n)}»{ej}."
+    real = _real(n, x)
+    if cat == "salas":
+        return f"«{nombre}» = sala de voz{srv}: en Discord se busca «{real}»{ej}."
+    hook = "con webhook (sin abrir Discord)" if str(x.get("webhook", "") or "").strip() else "sin webhook (por Discord Desktop)"
+    return f"«{nombre}» = canal{srv}: en Discord se busca «#{real}», {hook}{ej}."
+
+
+if __name__ == "__main__":   # prueba rápida:  python tools_discord.py bolso   /   python tools_discord.py "sala uno" "tp causas"
+    import sys
+    print(buscar_discord(*(sys.argv[1:3])))
 
 
 def guardar_discord(nombre: str, tipo: str = "usuario", usuario: str = "", servidor: str = "", alias: str = "") -> str:
@@ -436,7 +453,7 @@ SPEC = [
        {"destino": S, "mensaje": S, "tipo": _TIPO, "servidor": S}, ["destino", "mensaje"]),
     _t("unirse_llamada_discord", "Entra a una llamada (canal de voz) de Discord por el nombre de la sala. servidor solo si el usuario lo dice",
        {"sala": S, "servidor": S}, ["sala"]),
-    _t("buscar_discord", "Lista los usuarios y canales de Discord guardados, o dice qué tiene guardado uno. No hace falta para enviar", {"nombre": S}, []),
+    _t("buscar_discord", "Lista lo guardado de Discord, o dice qué nombre real se buscará para un alias. No hace falta para enviar", {"nombre": S, "servidor": S}, []),
     _t("guardar_discord", "Guarda o actualiza un usuario (con su usuario exacto de Discord) o un canal (con servidor opcional) en discord.json. "
                           "Solo con datos que el usuario escribió en su mensaje",
        {"nombre": S, "tipo": _TIPO, "usuario": S, "servidor": S, "alias": S}, ["nombre"]),
