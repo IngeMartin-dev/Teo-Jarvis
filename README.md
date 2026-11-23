@@ -73,9 +73,28 @@ Con **Groq** elegido, si un modelo responde 429 (límite gratuito), Jarvis pasa 
 - Para ver la pantalla se usan solo los modelos de `GROQ_VISION_MODELS`.
 
 ## Discord (se envía de inmediato, sin pedir confirmación)
-- «Jarvis, mándale a general en Discord que ya subí el avance» o «escríbele a Juan por Discord que llego en 10 minutos».
-- **Canales de servidor (recomendado, el más fiable):** crea un webhook (Ajustes del canal → Integraciones → Webhooks → Nuevo webhook → Copiar URL) y pégalo en `.env` con el nombre del canal: `DISCORD_WEBHOOK_GENERAL=https://discord.com/api/webhooks/...`. Un webhook solo sirve para ese canal y no puede leer nada; los mensajes salen sin menciones (@everyone, @usuario) por seguridad.
-- **Mensajes directos y cualquier otro canal:** usa Discord Desktop (Ctrl+K), así que debe estar instalado con la sesión iniciada. Antes de escribir **comprueba por el título de la ventana que se abrió el chat correcto**; si no puede comprobarlo, no envía y te lo dice.
+Los destinos de Discord van en su **propio archivo, `discord.json`** (junto al código; Git lo ignora). Si no existe, Jarvis lo crea la primera vez copiando `discord.example.json`.
+```json
+{
+  "usuarios": {
+    "Mamá": { "alias": ["mami"], "usuario": "mama_usuario" }
+  },
+  "canales": {
+    "general": {
+      "alias": ["principal"],
+      "servidor": "Mi Servidor",
+      "webhook": "https://discord.com/api/webhooks/..."
+    }
+  }
+}
+```
+- «Jarvis, mándale a mami por Discord que llego tarde» / «escribe en general de Discord que ya subí el avance».
+- **`usuarios`** = mensajes directos (`usuario` es el nombre exacto de Discord). **`canales`** = canales de servidor; `servidor` y `webhook` son opcionales.
+- **Canal con `webhook` (lo más fiable):** se envía directo por internet, sin abrir Discord. Créalo en Ajustes del canal → Integraciones → Webhooks → Nuevo webhook → Copiar URL y pégalo en `discord.json`. Sale sin menciones (@everyone, @usuario) por seguridad. Los webhooks son secretos: Jarvis nunca los guarda ni los muestra, los pegas tú.
+- **Usuario, o canal sin webhook:** usa Discord Desktop (Ctrl+K), que debe estar abierto con la sesión iniciada. Antes de escribir **comprueba por el título de la ventana que se abrió el chat correcto** (y el servidor, si lo pusiste); si no puede comprobarlo, no envía y te lo dice. Si tu Discord no muestra el servidor en la ventana, borra el campo `servidor`.
+- **Seguridad:** solo coincide el nombre o alias completo (sin tildes ni mayúsculas), sin adivinar; si un nombre coincide con un usuario y un canal, pide aclarar. Los elementos con `"ejemplo": true` son de muestra y no se les envía nada: pon los datos reales y borra esa línea.
+- Para guardar: edita el archivo o dile «guarda a Juan en Discord, su usuario es juan123». Solo guarda datos que tú escribiste en el mensaje.
+- Los webhooks `DISCORD_WEBHOOK_<NOMBRE>` del `.env` siguen funcionando para nombres que no estén en `discord.json`.
 - **Confirmación:** Discord, WhatsApp y correo se envían sin preguntar (los dos últimos se pueden volver a poner con `CONFIRMAR_ENVIOS`).
 - Opciones en `config_local.py`: `PERMISOS = {"discord": False}` lo apaga; `DISCORD_VERIFICAR_TITULO = False` desactiva la comprobación del título (solo si tu Discord no muestra el nombre del chat en la ventana).
 
@@ -86,13 +105,12 @@ Para no tener que decir números ni correos, Jarvis busca a las personas en `con
   "Mamá": {
     "alias": ["mami", "mama"],
     "whatsapp": "+57 300 123 4567",
-    "correo": "mama@gmail.com",
-    "discord": "mama_usuario"
+    "correo": "mama@gmail.com"
   }
 }
 ```
 - Todos los campos son opcionales. `alias` son otros nombres con los que la llamas.
-- «Jarvis, mándale un WhatsApp a Mamá que llego tarde» / «escríbele un correo a mami...» / «dile a Juan por Discord...»: busca el nombre (o un alias) en este archivo y usa su número, correo o usuario de Discord. Con WhatsApp usa el número directo, sin buscar el chat por nombre, que es lo más fiable.
+- «Jarvis, mándale un WhatsApp a Mamá que llego tarde» / «escríbele un correo a mami...» : busca el nombre (o un alias) en este archivo y usa su número o correo (Discord tiene su propio archivo, `discord.json`). Con WhatsApp usa el número directo, sin buscar el chat por nombre, que es lo más fiable.
 - Para guardar: edita el archivo a mano o dile «guarda a Pedro con el número +57 300 111 2233 y el correo pedro@gmail.com». Solo guarda datos que tú escribiste en el mensaje.
 - **Seguridad:** solo coincide el nombre o alias completo (sin importar mayúsculas ni tildes), sin adivinar. Si el nombre coincide con varios contactos, pide aclarar en vez de elegir. Los números que terminan en ceros y los correos `@example.com` son de ejemplo y Jarvis no les envía nada. Al listar o consultar contactos, el modelo solo ve los números ocultados (últimos 3 dígitos) y los correos recortados; la lista completa no se le envía. Ojo: lo que tú le dices en el chat sí va al proveedor de IA que elijas (Ollama es local).
 - Si el JSON tiene un error de coma o comillas, Jarvis te dice la línea.

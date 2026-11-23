@@ -1,4 +1,4 @@
-"""Libreta de contactos de Jarvis: contactos.json  (nombre -> whatsapp, correo, discord, alias).
+"""Libreta de contactos de Jarvis: contactos.json  (nombre -> whatsapp, correo, alias).
 
 El archivo real es contactos.json (junto al código; Git lo ignora porque tiene datos personales). Si no existe, Jarvis lo crea
 copiando contactos.example.json. Edítalo a mano o dile «guarda a Mamá con el número +57 300 123 4567».
@@ -15,7 +15,7 @@ import apps_index, config
 
 _AQUI = Path(__file__).parent
 EJEMPLO = _AQUI / "contactos.example.json"
-CAMPOS = ("whatsapp", "correo", "discord")
+CAMPOS = ("whatsapp", "correo")  # Discord tiene su propio archivo: discord.json
 _EMAIL = re.compile(r"[^@\s,;]+@[^@\s,;]+\.[^@\s,;]+")
 
 
@@ -148,14 +148,14 @@ def _digitos(s: str) -> str:
     return re.sub(r"\D", "", s)
 
 
-def guardar_contacto(nombre: str, whatsapp: str = "", correo: str = "", discord: str = "", alias: str = "") -> str:
+def guardar_contacto(nombre: str, whatsapp: str = "", correo: str = "", alias: str = "") -> str:
     """Crea o actualiza un contacto en contactos.json. Los datos deben venir de lo que escribió el usuario."""
     import tools_pc, tools_google
     nombre = nombre.strip()
     if not nombre or len(nombre) > 60 or nombre.startswith("_"):
         return "Dime el nombre del contacto."
-    if not any([whatsapp.strip(), correo.strip(), discord.strip(), alias.strip()]):
-        return "Dime al menos un dato: whatsapp, correo, discord o alias."
+    if not any([whatsapp.strip(), correo.strip(), alias.strip()]):
+        return "Dime al menos un dato: whatsapp, correo o alias."
     ctx = tools_google._contexto["texto"]
     nuevos = {}
     if whatsapp.strip():
@@ -170,10 +170,6 @@ def guardar_contacto(nombre: str, whatsapp: str = "", correo: str = "", discord:
         if correo.strip().lower() not in ctx:
             return "No veo ese correo en lo que me dijiste; por seguridad no lo guardo. Dímelo escrito."
         nuevos["correo"] = correo.strip()
-    if discord.strip():
-        if discord.strip().lower() not in ctx:
-            return "No veo ese usuario de Discord en lo que me dijiste; por seguridad no lo guardo."
-        nuevos["discord"] = discord.strip()
     try:
         f = archivo()
         asegurar_archivo()
@@ -208,10 +204,10 @@ def _t(name, desc, props, req):
 S = {"type": "string"}
 SPEC = [
     _t("buscar_contacto", "Lista los contactos guardados (sin nombre) o dice qué datos tiene uno. No hace falta para enviar mensajes: "
-                          "enviar_whatsapp, enviar_correo y enviar_discord ya buscan el nombre en los contactos", {"nombre": S}, []),
-    _t("guardar_contacto", "Guarda o actualiza un contacto (whatsapp con indicativo, correo, usuario de discord, alias separados por coma). "
+                          "enviar_whatsapp y enviar_correo ya buscan el nombre en los contactos", {"nombre": S}, []),
+    _t("guardar_contacto", "Guarda o actualiza un contacto (whatsapp con indicativo, correo, alias separados por coma). "
                            "Solo con datos que el usuario escribió en su mensaje",
-       {"nombre": S, "whatsapp": S, "correo": S, "discord": S, "alias": S}, ["nombre"]),
+       {"nombre": S, "whatsapp": S, "correo": S, "alias": S}, ["nombre"]),
 ]
 REGISTRY = {f["function"]["name"]: globals()[f["function"]["name"]] for f in SPEC}
 

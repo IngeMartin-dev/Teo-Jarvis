@@ -1,0 +1,25 @@
+{
+  "_ayuda": "Destinos de Discord. 'usuarios' son mensajes directos: pon el usuario exacto de Discord. 'canales' son canales de un servidor: 'servidor' es opcional (si lo pones, Jarvis comprueba que se abrió ese servidor) y 'webhook' es opcional (con webhook Jarvis envía sin abrir Discord, es lo más fiable: Ajustes del canal > Integraciones > Webhooks > Nuevo webhook > Copiar URL). 'alias' son otros nombres con los que lo llamas. Los elementos con \"ejemplo\": true son de muestra y Jarvis no les envía nada: pon los datos reales y borra esa línea. Las claves que empiezan con _ se ignoran.",
+
+  "usuarios": {
+    "Contacto de Prueba": {
+      "alias": ["prueba", "test"],
+      "usuario": "usuario_de_prueba",
+      "ejemplo": true
+    },
+    "Mamá": {
+      "alias": ["mami", "mama"],
+      "usuario": "mama_usuario",
+      "ejemplo": true
+    }
+  },
+
+  "canales": {
+    "general": {
+      "alias": ["principal"],
+      "servidor": "Mi Servidor",
+      "webhook": "",
+      "ejemplo": true
+    }
+  }
+}

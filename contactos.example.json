@@ -1,11 +1,10 @@
 {
-  "_ayuda": "Cada contacto es un nombre con sus datos. Campos (todos opcionales): whatsapp (con indicativo de país), correo, discord (usuario exacto) y alias (otros nombres con los que lo llamas). Jarvis busca aquí cuando le dices «mándale un WhatsApp a Mamá». Los números que terminan en ceros y los correos @example.com son de ejemplo y Jarvis no les envía nada: cámbialos por los reales. Las claves que empiezan con _ se ignoran.",
+  "_ayuda": "Cada contacto es un nombre con sus datos. Campos (todos opcionales): whatsapp (con indicativo de país), correo y alias (otros nombres con los que lo llamas). Jarvis busca aquí cuando le dices «mándale un WhatsApp a Mamá». Los números que terminan en ceros y los correos @example.com son de ejemplo y Jarvis no les envía nada: cámbialos por los reales. Las claves que empiezan con _ se ignoran.",
 
   "Contacto de Prueba": {
     "alias": ["prueba", "test"],
     "whatsapp": "+57 300 000 0000",
-    "correo": "prueba@example.com",
-    "discord": "usuario_de_prueba"
+    "correo": "prueba@example.com"
   },
 
   "Mamá": {

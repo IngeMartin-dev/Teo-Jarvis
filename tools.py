@@ -481,7 +481,7 @@ _GRUPOS = [
      {"listar_proyecto", "leer_codigo", "escribir_codigo", "editar_codigo", "agregar_al_final", "buscar_en_codigo",
       "abrir_en_vscode", "deshacer_cambio", "crear_proyecto", "subir_cambios"}),
     (("discord", "dc ", "canal", "servidor"),
-     {"enviar_discord"}),
+     {"enviar_discord", "buscar_discord", "guardar_discord"}),
     (("tienda", "store", "instala", "descarga", "descargar"),
      {"abrir_tienda", "buscar_en_tienda", "instalar_desde_tienda"}),
     (("whatsapp", "wasap", "mensaje a", "mándale", "mandale", "escríbele", "escribele", "dile a"),

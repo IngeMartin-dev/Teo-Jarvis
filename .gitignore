@@ -3,6 +3,7 @@ __pycache__/
 *.pyc
 config_local.py
 contactos.json
+discord.json
 credentials.json
 token.json
 .env
