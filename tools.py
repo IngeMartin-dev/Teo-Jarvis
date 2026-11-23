@@ -493,13 +493,49 @@ _GRUPOS = [
 ]
 
 
-def seleccionar(texto: str) -> list:
-    """Devuelve solo las herramientas relevantes para el mensaje."""
-    t = texto.lower()
+def _nombres_guardados() -> dict:
+    """Nombres de contactos.json y discord.json (servidores, canales, salas, usuarios y alias), para reconocer
+    «mándale a Mamá» o «escribe en general de TP Causas» aunque el mensaje no diga la palabra Discord/WhatsApp."""
+    res = {"discord": set(), "contacto": set()}
+    try:
+        import tools_discord, contactos, apps_index
+        archivo = tools_discord.archivo()
+        if archivo.exists():
+            crudo = json.loads(archivo.read_text(encoding="utf-8-sig"))
+
+            def recoger(d):
+                for k, v in d.items():
+                    if isinstance(v, dict) and not k.startswith("_"):
+                        res["discord"].add(k.lower())
+                        res["discord"].update(str(x).lower() for x in tools_discord._alias(v))
+                        for sub in ("canales", "salas"):
+                            if isinstance(v.get(sub), dict):
+                                recoger(v[sub])
+            for cat in ("servidores", "canales", "salas", "usuarios"):
+                if isinstance(crudo.get(cat), dict):
+                    recoger(crudo[cat])
+        for n, d in contactos.cargar().items():
+            res["contacto"].add(n.lower())
+            res["contacto"].update(str(x).lower() for x in contactos._alias(d))
+    except Exception:
+        pass
+    for k in res:
+        res[k] = {x for x in res[k] if len(x) >= 3}
+    return res
+
+
+def seleccionar(texto: str, contexto: str = "") -> list:
+    """Devuelve solo las herramientas relevantes para el mensaje (y los mensajes recientes del usuario)."""
+    t = (texto + " " + contexto).lower()
     nombres = set(_BASE)
     for palabras, grupo in _GRUPOS:
         if any(p in t for p in palabras):
             nombres |= grupo
+    guardados = _nombres_guardados()
+    if any(n in t for n in guardados["discord"]):
+        nombres |= {"enviar_discord", "buscar_discord", "guardar_discord", "unirse_llamada_discord"}
+    if any(n in t for n in guardados["contacto"]):
+        nombres |= {"enviar_whatsapp", "confirmar_whatsapp", "cancelar_whatsapp", "enviar_correo"}
     if tools_google._pendiente:   # hay un correo esperando confirmación
         nombres |= {"confirmar_envio", "cancelar_envio", "enviar_correo"}
     if tools_pc._wa:              # hay un WhatsApp esperando confirmación

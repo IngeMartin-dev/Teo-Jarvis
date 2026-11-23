@@ -115,6 +115,18 @@ _ACCION_VISUAL = re.compile(
 )
 
 
+_SIN_HERRAMIENTA = re.compile(r"no (?:dispongo|tengo)\b.{0,60}(?:herramienta|funci[oó]n)|\"destino\"\s*:|\"name\"\s*:\s*\"\w+\"", re.I | re.S)
+
+
+def _falso_sin_herramienta(texto: str) -> bool:
+    """¿La respuesta es una llamada escrita como texto o un 'no tengo la herramienta' que no corresponde?"""
+    if not texto:
+        return False
+    if _SIN_HERRAMIENTA.search(texto):
+        return True
+    return any(n in texto for n in tools.REGISTRY if len(n) > 8 and "_" in n)
+
+
 def _confirmado(texto: str) -> bool:
     t = texto.lower().strip(" .,!¡")
     return bool(_AFIRMA.search(t)) or t in _SOLO_SI
@@ -145,6 +157,7 @@ def responder(texto: str) -> str:
 
     tools.tools_google.set_contexto(texto)  # direcciones que se pueden usar sin confirmación
     msgs = _mensajes(texto)
+    _previos = " ".join(str(x.get("content", "")) for x in msgs[1:-1] if x.get("role") == "user")[-600:]
     pantalla_en_contexto = _pide_pantalla(texto)
     captura = None
     indice_mensaje_usuario = len(msgs) - 1
@@ -186,7 +199,7 @@ def responder(texto: str) -> str:
     try:
         for _ in range(14):  # máximo 14 rondas (programar puede encadenar varias lecturas y ediciones)
             proveedor = proveedor_actual
-            herramientas = tools.TOOLS_SPEC if usar_todas else tools.seleccionar(texto)
+            herramientas = tools.TOOLS_SPEC if usar_todas else tools.seleccionar(texto, _previos)
             if captura:
                 if proveedor in ("cloudflare", "mistral"):
                     proveedores_fallidos.add(proveedor)
@@ -272,6 +285,15 @@ def responder(texto: str) -> str:
             msgs.append(m)
             llamadas = m.get("tool_calls")
             if not llamadas:
+                bruto = m.get("content") or ""
+                # Modelos pequeños a veces escriben la llamada como texto o dicen que "no tienen la herramienta":
+                # se reintenta una vez con todas las herramientas y una indicación de llamarla de verdad.
+                if not usar_todas and _falso_sin_herramienta(bruto):
+                    usar_todas = True
+                    msgs.pop()
+                    msgs.append({"role": "user", "content": "Llama de verdad a la herramienta que corresponde (con tool_call), sin escribirla "
+                                 "como texto y sin decir que no la tienes. Pedido original: " + texto})
+                    continue
                 out = re.sub(r"<think>.*?</think>", "", m.get("content", ""), flags=re.S).strip() or "Listo."
                 break
             for c in llamadas:
