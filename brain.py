@@ -2,6 +2,8 @@
 import json, re, requests, time
 from datetime import datetime
 import config, memory, tools
+import llamadas as llamadas_wa
+import energia
 
 # ---------------- Groq: rotación entre modelos cuando uno da 429 ----------------
 _groq_agotado: dict = {}  # modelo -> hora hasta la que sabemos que está agotado (429)
@@ -63,11 +65,20 @@ SISTEMA = (
     "Cuando el usuario pida una acción (ver la pantalla, abrir o cerrar apps, instalar una app, abrir archivos, crear proyectos o documentos, agendar o recordar), "
     "usa las herramientas y nunca digas que hiciste algo sin haberlo hecho con una herramienta. "
     "Cierra una aplicación solo si el usuario pidió cerrarla. Instala una aplicación solo si el usuario lo pidió explícitamente; "
-    "la instalación está limitada a WinGet y al usuario actual. Nunca instales herramientas o archivos del sistema. "
+    "la instalación es solo para el usuario actual. Nunca instales herramientas o archivos del sistema. "
     "No modifiques archivos que el usuario no haya indicado; nunca escribas, borres ni instales nada dentro de Windows o carpetas del sistema. "
-    "Microsoft Store: tienes buscar_en_tienda, abrir_tienda e instalar_desde_tienda. Cuando el usuario pide instalar una app, "
-    "esa petición ya es la autorización: no pidas permisos adicionales ni digas que no puedes acceder a la Tienda; búscala "
-    "e instálala (primero instalar_app con WinGet; si no está ahí, busca en la Tienda). "
+    "Instalar apps: usa instalar_app con el nombre que dijo el usuario. Busca primero en Microsoft Store y, si está, la instala; "
+    "esa petición ya es la autorización, no pidas permisos adicionales ni digas que no puedes acceder a la Tienda. Si no está en la Tienda, "
+    "instalar_app busca una versión segura en WinGet y NO instala: te devuelve una propuesta. Entonces pregúntale al usuario, en una frase, "
+    "si la instalas, y usa confirmar_instalacion únicamente después de que diga que sí (cancelar_instalacion si dice que no). "
+    "Si no la encuentra en ninguno, díselo y no la descargues de páginas web. buscar_en_tienda y abrir_tienda son solo para consultar. "
+    "Energía del PC: suspender_pc, apagar_pc y reiniciar_pc NO ejecutan nada: devuelven una pregunta. Hazle esa pregunta al usuario en una "
+    "frase y usa confirmar_energia únicamente después de que diga que sí; si dice que no, cancelar_energia. Nunca apagues ni reinicies por "
+    "una frase ambigua (apagar la pantalla o un programa no es apagar el PC). Tras confirmar, apagar y reiniciar tienen una cuenta atrás "
+    "en la que el usuario puede decir «cancela el apagado». "
+    "Llamadas de WhatsApp: Jarvis las vigila y las contesta solo (el usuario dice «contesta», «rechaza» o «yo contesto»; si no dice nada en "
+    "unos segundos, contesta Jarvis). Si el usuario pide contestar o rechazar una llamada y no se resolvió solo, usa contestar_llamada o "
+    "rechazar_llamada; para probar los avisos al celular usa probar_aviso_celular. Nunca digas que contestaste sin haber usado la herramienta. "
     "Programar: trabajas en la carpeta de proyectos del usuario con listar_proyecto, leer_codigo, escribir_codigo (archivos nuevos), "
     "editar_codigo (cambios puntuales), agregar_al_final, buscar_en_codigo, abrir_en_vscode y deshacer_cambio. Antes de editar un archivo "
     "existente léelo con leer_codigo y copia el fragmento exacto; para proyectos nuevos usa crear_proyecto y luego escribe los archivos "
@@ -77,7 +88,10 @@ SISTEMA = (
     "Si el usuario pide crear o modificar un archivo o página, SÍ puedes: usa estas herramientas, nunca digas que no puedes ni le pidas pegarlo a mano. "
     "Al terminar di en una frase qué cambiaste; el usuario puede pedirte deshacer_cambio. "
     "Control del PC: puedes usar el mouse y el teclado con clic_elemento (preferido: haz clic por el nombre del botón), "
-    "listar_elementos, clic, mover_mouse, scroll, escribir_texto y presionar_teclas. Usa estas herramientas solo cuando el usuario "
+    "listar_elementos, clic_visual, clic, mover_mouse, scroll, escribir_texto y presionar_teclas. Si lo que el usuario pide tocar no tiene nombre "
+    "o clic_elemento no lo encuentra, se busca solo mirando la pantalla; para algo que solo se describe visualmente («el icono rojo de arriba a la "
+    "derecha») usa clic_visual. Si clic_visual dice que la acción es delicada y NO hizo clic, pregúntale al usuario y usa confirmar_clic_visual solo si dice que sí. "
+    "Usa estas herramientas solo cuando el usuario "
     "lo pida; nunca teclees contraseñas ni actúes sobre terminales o ajustes del sistema, y si una herramienta lo rechaza por seguridad, "
     "dile al usuario que lo haga él. "
     "WhatsApp: enviar_whatsapp envía el mensaje DE INMEDIATO y el usuario pidió que no le preguntes si lo envías: no pidas confirmación, "
@@ -107,7 +121,8 @@ SISTEMA = (
 
 
 # El envío de correos exige una confirmación explícita del usuario en SU mensaje (no basta con que el modelo la dé por hecha)
-_AFIRMA = re.compile(r"\b(sí|confirmo|confirma|confírmalo|envíalo|envialo|enviarlo|adelante|dale)\b")
+_AFIRMA = re.compile(r"\b(sí|confirmo|confirma|confírmalo|envíalo|envialo|enviarlo|adelante|dale|"
+                    r"inst[aá]lalo|inst[aá]lala|hazlo|proced[eé])\b")
 _SOLO_SI = {"si", "ok", "listo", "claro", "dale", "envíalo", "envialo"}
 _PANTALLA = re.compile(r"\b(pantalla|monitor|escritorio)\b", re.I)
 _ACCION_VISUAL = re.compile(
@@ -133,9 +148,12 @@ def _confirmado(texto: str) -> bool:
     return bool(_AFIRMA.search(t)) or t in _SOLO_SI
 
 
+_ACCION_CLIC = re.compile(r"\b(clic|click|cl[ií]quea|dale|pulsa|presiona|toca|haz)\b", re.I)
+
+
 def _pide_pantalla(texto: str) -> bool:
-    """Detecta una petición explícita de leer o describir la pantalla actual."""
-    return bool(_PANTALLA.search(texto) and _ACCION_VISUAL.search(texto))
+    """Detecta una petición explícita de leer o describir la pantalla actual (no un «ve a la pantalla y dale clic a…»)."""
+    return bool(_PANTALLA.search(texto) and _ACCION_VISUAL.search(texto) and not _ACCION_CLIC.search(texto))
 
 
 def _mensajes(texto: str) -> list:
@@ -155,6 +173,21 @@ def responder(texto: str) -> str:
             out = tools.ejecutar_rutina(frase)
             memory.guardar_chat("user", texto); memory.guardar_chat("assistant", out)
             return out
+
+    # Atajo sin LLM: llamadas de WhatsApp (tiene que responder en segundos, no esperar a un modelo lento)
+    try:
+        out = llamadas_wa.manejar_texto(texto)
+    except Exception as e:
+        out = f"Error con la llamada: {e}"
+    if out is not None:
+        memory.guardar_chat("user", texto); memory.guardar_chat("assistant", out)
+        return out
+
+    # Atajo sin LLM: cancelar un apagado o reinicio en cuenta atrás (hay que reaccionar en segundos)
+    out = energia.manejar_texto(texto)
+    if out is not None:
+        memory.guardar_chat("user", texto); memory.guardar_chat("assistant", out)
+        return out
 
     tools.tools_google.set_contexto(texto)  # direcciones que se pueden usar sin confirmación
     msgs = _mensajes(texto)
@@ -303,8 +336,9 @@ def responder(texto: str) -> str:
                 if isinstance(args, str):
                     args = json.loads(args or "{}")
                 try:
-                    if nombre in ("confirmar_envio", "confirmar_whatsapp") and not _confirmado(texto):
-                        res = "El usuario todavía no ha confirmado. Pregúntale si lo envías y espera su respuesta."
+                    if nombre in ("confirmar_envio", "confirmar_whatsapp", "confirmar_instalacion",
+                                  "confirmar_clic_visual", "confirmar_energia") and not _confirmado(texto):
+                        res = "El usuario todavía no ha confirmado. Pregúntale si lo hago y espera su respuesta."
                     else:
                         res = tools.REGISTRY[nombre](**args)
                 except Exception as e:

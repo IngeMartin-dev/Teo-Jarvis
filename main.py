@@ -6,7 +6,7 @@ from pathlib import Path
 import pystray
 from PIL import Image, ImageDraw
 
-import brain, voice, config
+import brain, voice, config, llamadas
 
 try:  # coordenadas correctas en pantallas con escalado
     ctypes.windll.shcore.SetProcessDpiAwareness(1)
@@ -285,8 +285,10 @@ menu = pystray.Menu(
 tray = pystray.Icon("Jarvis", icono(), "Jarvis", menu)
 
 voice.on_estado = set_estado
+gestor_llamadas = llamadas.iniciar(escribir=escribir)   # vigila llamadas de WhatsApp (ver README: «Llamadas de WhatsApp»)
 threading.Thread(target=tray.run, daemon=True).start()
-threading.Thread(target=voice.escuchar_en_bucle, args=(procesar, lambda: activo), daemon=True).start()
+threading.Thread(target=voice.escuchar_en_bucle, args=(procesar, lambda: activo),
+                 kwargs={"atajo": gestor_llamadas.atajo_voz}, daemon=True).start()
 
 escribir("Jarvis", "Listo. Escríbeme o di «Hola Jarvis». Después seguiré escuchándote hasta que digas «adiós Jarvis».")
 animar()
