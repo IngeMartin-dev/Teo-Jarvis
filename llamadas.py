@@ -150,7 +150,9 @@ class Gestor:
         self.info, self.origen, self._perdidas = info, origen, 0
         self.hasta = None
         self._fijar("esperando")
-        if origen == "auto":
+        if origen == "auto" and _cfg("LLAMADA_ESPERA_SEG", 15) <= 0:
+            self.deadline = ahora   # espera 0: contesta de inmediato, sin avisarte por voz ni esperar tu respuesta
+        elif origen == "auto":
             self.deadline = None   # la cuenta empieza cuando Jarvis termina de avisarte
             threading.Thread(target=self._anunciar, args=(info,), daemon=True).start()
         else:

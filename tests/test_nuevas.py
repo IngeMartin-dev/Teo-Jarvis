@@ -266,6 +266,18 @@ class TestLlamadas(unittest.TestCase):
         self.assertTrue(esperar(lambda: len(reg.avisos) == 1))
         self.assertIn("no pude contestar", reg.avisos[0])
 
+    def test_espera_cero_contesta_directo(self):
+        g, ui, reloj, reg = nuevo_gestor()
+        with mock.patch.object(config, "LLAMADA_ESPERA_SEG", 0):
+            ui.info = ENTRANTE
+            g.tick()                                      # detecta la llamada
+            self.assertEqual(reg.hablado, [])             # no avisa por voz
+            g.tick()                                      # siguiente lectura: contesta
+            self.assertTrue(esperar(lambda: "aceptar" in ui.llamadas))
+            self.assertTrue(esperar(lambda: any(k == "llamada" for k, _ in reg.hablado)))
+            self.assertIn("asistente con IA de Martín", [t for k, t in reg.hablado if k == "llamada"][0])
+            self.assertTrue(esperar(lambda: len(reg.avisos) == 1))
+
     def test_cuelga_durante_llamada_de_jarvis(self):
         g, ui, reloj, reg = nuevo_gestor()
         ui.info = ENTRANTE
