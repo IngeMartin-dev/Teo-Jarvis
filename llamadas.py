@@ -10,8 +10,12 @@ Las videollamadas nunca se contestan solas (para no encender tu cámara): solo t
 
 La lógica está separada de Windows (ui_llamadas.py) para poder probarla sin WhatsApp.
 """
-import re, threading, time
+import re, sys, threading, time
 import config, notificaciones
+
+# pywinauto/UI Automation works in STA. Set this before its lazy import in
+# ui_llamadas.py so pywinauto does not first try MTA and then warn/fallback.
+sys.coinit_flags = 2  # COINIT_APARTMENTTHREADED
 
 # ---------------- Frases ----------------
 _WHATSAPP = r"(whats\s?app|wats\s?app|guats\s?app|wasap|guasap)"
@@ -138,7 +142,7 @@ class Gestor:
         """Bucle del hilo vigilante."""
         try:  # pywinauto usa COM; este hilo necesita inicializarlo
             import comtypes
-            comtypes.CoInitializeEx(comtypes.COINIT_MULTITHREADED)
+            comtypes.CoInitializeEx(comtypes.COINIT_APARTMENTTHREADED)
         except Exception:
             pass
         while True:
@@ -301,7 +305,36 @@ class Gestor:
                 return "Va, es toda tuya. No la contesto."
         return "No hay ninguna llamada pendiente."
 
-    def diagnosticar(self, segundos: int = 40) -> str:
+    def _leer_instantanea(self, limite: float = 5.0) -> list:
+        """Lee UI Automation en un hilo STA con límite para que un bloqueo de Windows no congele el diagnóstico."""
+        terminado = threading.Event()
+        resultado = {}
+
+        def leer():
+            comtypes = None
+            try:
+                import comtypes as _comtypes
+                comtypes = _comtypes
+                comtypes.CoInitializeEx(comtypes.COINIT_APARTMENTTHREADED)
+                resultado["lineas"] = list(self.ui.instantanea())
+            except Exception as e:
+                resultado["error"] = f"{type(e).__name__}: {e}"
+            finally:
+                if comtypes is not None:
+                    try:
+                        comtypes.CoUninitialize()
+                    except Exception:
+                        pass
+                terminado.set()
+
+        threading.Thread(target=leer, daemon=True).start()
+        if not terminado.wait(limite):
+            raise TimeoutError(f"WhatsApp/UI Automation no respondió en {limite:g} segundos")
+        if "error" in resultado:
+            raise RuntimeError(resultado["error"])
+        return resultado.get("lineas", [])
+
+    def diagnosticar(self, segundos: int = 15) -> str:
         """Observa la pantalla `segundos` segundos y reporta qué ventanas aparecen (para llamarte mientras tanto)."""
         if getattr(self, "_observando", False):
             return "Ya estoy observando. Llámame por WhatsApp desde otro teléfono."
@@ -313,17 +346,18 @@ class Gestor:
     def _observar(self, segundos: int):
         try:
             try:
-                base = list(self.ui.instantanea())
+                base = self._leer_instantanea()
             except Exception as e:
                 base = [f"No pude leer la pantalla: {type(e).__name__}: {e}"]
             vistas, nuevas = set(base), []
             fin = self.reloj() + segundos
             while self.reloj() < fin:
-                self.dormir(2)
+                self.dormir(1)
                 try:
-                    actual = list(self.ui.instantanea())
-                except Exception:
-                    continue
+                    actual = self._leer_instantanea()
+                except Exception as e:
+                    nuevas.append(f"La observación se detuvo: {type(e).__name__}: {e}")
+                    break
                 for l in actual:
                     if l not in vistas:
                         vistas.add(l)
@@ -340,6 +374,10 @@ class Gestor:
                 ruta = None
             self._escribir("Jarvis", "Resultado de la observación (revisa que no haya nada privado antes de compartirlo):\n"
                            + informe[:1800] + (f"\n\nGuardado en {ruta}" if ruta else ""))
+        except Exception as e:
+            # Do not leave the user with only “Ya estoy observando” if the worker
+            # itself encounters an unexpected error.
+            self._escribir("Jarvis", f"Falló la observación de llamadas: {type(e).__name__}: {e}")
         finally:
             self._observando = False
 
