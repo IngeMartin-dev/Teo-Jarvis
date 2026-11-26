@@ -99,33 +99,10 @@ def cerrar_app(nombre: str) -> str:
 
 
 def instalar_app(nombre: str) -> str:
-    """Instala por nombre exacto desde WinGet, solo para el usuario actual y sin elevar permisos."""
-    nombre = nombre.strip()
-    if not nombre or len(nombre) > 100 or any(ord(c) < 32 for c in nombre):
-        return "Dime el nombre exacto de la aplicación que quieres instalar."
-    winget = shutil.which("winget") or str(Path(os.environ.get("LOCALAPPDATA", "")) /
-                                              "Microsoft/WindowsApps/winget.exe")
-    if not Path(winget).exists():
-        return "No encuentro WinGet. Instala o actualiza 'Instalador de aplicación' desde Microsoft Store."
-    cmd = [winget, "install", "--name", nombre, "--exact", "--source", "winget", "--scope", "user",
-           "--accept-source-agreements", "--accept-package-agreements", "--disable-interactivity"]
-    try:
-        r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace",
-                           timeout=900, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-    except subprocess.TimeoutExpired:
-        return f"La instalación de {nombre} superó el tiempo límite. Revisa si WinGet sigue trabajando."
-    except Exception as e:
-        return f"No pude instalar {nombre}: {e}"
-    salida = (r.stdout + "\n" + r.stderr).strip()
-    if r.returncode == 0:
-        try:
-            apps_index.cargar(forzar=True)
-        except Exception:
-            pass
-        return f"Instalé {nombre} para tu usuario."
-    return (f"No instalé {nombre}. WinGet no encontró una coincidencia exacta, hubo varias, "
-            "o el paquete no admite instalación por usuario. No hice una instalación para todo el equipo. "
-            + salida[-300:])
+    """Instala una app que el usuario pidió: primero Microsoft Store; si no está, busca una versión segura en WinGet y
+    pide confirmación antes de instalarla (ver instalador.py)."""
+    import instalador
+    return instalador.instalar(nombre)
 
 
 def capturar_pantalla() -> str:
@@ -405,7 +382,7 @@ I = {"type": "integer"}
 TOOLS_SPEC = [
     _t("abrir_app", "Abre cualquier aplicación o juego instalado en el PC por su nombre (Roblox, Spotify, Steam, Discord...)", {"nombre": S}, ["nombre"]),
     _t("cerrar_app", "Cierra la aplicación indicada si está abierta. Usa esto solo cuando el usuario pida cerrar esa aplicación. No cierra procesos de Windows.", {"nombre": S}, ["nombre"]),
-    _t("instalar_app", "Instala la aplicación que el usuario pidió explícitamente, desde WinGet, solo para su usuario. No instala paquetes de sistema ni ejecuta comandos arbitrarios.", {"nombre": S}, ["nombre"]),
+    _t("instalar_app", "Instala la aplicación que el usuario pidió: la busca primero en Microsoft Store y, si está, la instala; si no está, busca una versión segura en WinGet y devuelve la propuesta para PREGUNTARLE al usuario antes de instalar (luego confirmar_instalacion). No ejecuta comandos arbitrarios.", {"nombre": S}, ["nombre"]),
     _t("abrir_url", "Abre una página web en el navegador", {"url": S}, ["url"]),
     _t("ejecutar_rutina", "Ejecuta una rutina guardada, p. ej. 'inicia mi día'", {"nombre": S}, ["nombre"]),
     _t("abrir_archivo", "Abre un archivo o carpeta del PC por nombre o ruta completa", {"nombre_o_ruta": S}, ["nombre_o_ruta"]),
@@ -459,9 +436,24 @@ import contactos
 TOOLS_SPEC += contactos.SPEC
 REGISTRY.update(contactos.REGISTRY)
 
+# ---------- Instalar apps: confirmar / cancelar la propuesta de WinGet ----------
+import instalador
+TOOLS_SPEC += instalador.SPEC
+REGISTRY.update(instalador.REGISTRY)
+
+# ---------- Energía: suspender, apagar, reiniciar (con confirmación) ----------
+import energia
+TOOLS_SPEC += energia.SPEC
+REGISTRY.update(energia.REGISTRY)
+
+# ---------- Llamadas de WhatsApp y aviso al celular ----------
+import llamadas
+TOOLS_SPEC += llamadas.SPEC
+REGISTRY.update(llamadas.REGISTRY)
+
 
 # ---------- Selección de herramientas por tema (menos tokens = respuestas más rápidas) ----------
-_BASE = {"abrir_app", "cerrar_app", "instalar_app", "buscar_en_tienda", "instalar_desde_tienda", "abrir_tienda",
+_BASE = {"abrir_app", "cerrar_app", "instalar_app", "buscar_en_tienda", "abrir_tienda",
          "abrir_url", "ejecutar_rutina", "recordar", "olvidar", "hora_actual", "buscar_contacto", "guardar_contacto"}
 _GRUPOS = [
     (("correo", "mail", "gmail", "drive", "agenda", "calendar", "calendario", "reunión", "reunion",
@@ -482,14 +474,21 @@ _GRUPOS = [
       "abrir_en_vscode", "deshacer_cambio", "crear_proyecto", "subir_cambios"}),
     (("discord", "dc ", "canal", "servidor", "llamada", "sala"),
      {"enviar_discord", "buscar_discord", "guardar_discord", "unirse_llamada_discord"}),
-    (("tienda", "store", "instala", "descarga", "descargar"),
-     {"abrir_tienda", "buscar_en_tienda", "instalar_desde_tienda"}),
+    (("tienda", "store", "instala", "descarga", "descargar", "winget"),
+     {"abrir_tienda", "buscar_en_tienda", "instalar_app", "confirmar_instalacion", "cancelar_instalacion"}),
+    (("apaga", "apagar", "reinicia", "reiniciar", "suspende", "suspender", "suspensión", "suspension", "dormir",
+      "hibernar", "shutdown", "restart"),
+     {"suspender_pc", "apagar_pc", "reiniciar_pc", "confirmar_energia", "cancelar_energia"}),
+    (("llamada", "llaman", "llamando", "contesta", "contéstala", "contestala", "atiende", "descuelga", "cuelga",
+      "rechaza", "celular", "aviso"),
+     {"contestar_llamada", "rechazar_llamada", "diagnosticar_llamada", "probar_aviso_celular"}),
     (("whatsapp", "wasap", "mensaje a", "mándale", "mandale", "escríbele", "escribele", "dile a"),
      {"enviar_whatsapp", "confirmar_whatsapp", "cancelar_whatsapp"}),
     (("mouse", "ratón", "raton", "clic", "click", "haz clic", "teclado", "escribe", "teclea", "tecla", "scroll",
-      "desplaza", "botón", "boton", "pulsa", "presiona", "controla", "pestaña", "ventana", "cursor"),
-     {"tamano_pantalla", "listar_elementos", "clic_elemento", "mover_mouse", "clic", "scroll",
-      "escribir_texto", "presionar_teclas"}),
+      "desplaza", "botón", "boton", "pulsa", "presiona", "controla", "pestaña", "ventana", "cursor",
+      "icono", "ícono", "dale", "toca", "donde dice", "ve a "),
+     {"tamano_pantalla", "listar_elementos", "clic_elemento", "clic_visual", "confirmar_clic_visual", "mover_mouse", "clic",
+      "scroll", "escribir_texto", "presionar_teclas"}),
 ]
 
 
@@ -540,4 +539,10 @@ def seleccionar(texto: str, contexto: str = "") -> list:
         nombres |= {"confirmar_envio", "cancelar_envio", "enviar_correo"}
     if tools_pc._wa:              # hay un WhatsApp esperando confirmación
         nombres |= {"confirmar_whatsapp", "cancelar_whatsapp"}
+    if energia.hay_pendiente() or energia._programada:   # hay una acción de energía esperando o en cuenta atrás
+        nombres |= {"confirmar_energia", "cancelar_energia"}
+    if instalador.hay_pendiente():   # hay una instalación de WinGet esperando confirmación
+        nombres |= {"confirmar_instalacion", "cancelar_instalacion"}
+    if tools_pc._clic_pendiente:     # hay un clic delicado esperando confirmación
+        nombres |= {"confirmar_clic_visual"}
     return [f for f in TOOLS_SPEC if f["function"]["name"] in nombres]

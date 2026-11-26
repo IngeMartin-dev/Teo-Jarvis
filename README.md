@@ -46,6 +46,38 @@ Notas:
 - El contenido de correos y archivos se trata solo como información: Jarvis no obedece órdenes escritas dentro de un correo.
 - Si Gmail pide muchos permisos: Jarvis solo puede leer y enviar (no borra correos); en Drive solo lee y sube archivos.
 
+## Llamadas de WhatsApp, clic por visión, instalador y energía (nuevo)
+Con el entorno activo: `python -m pip install -r requirements.txt` (agrega `sounddevice`).
+
+### Contestar llamadas de WhatsApp
+- **Cómo funciona:** Jarvis vigila WhatsApp Desktop. Cuando entra una llamada te avisa por voz («Te está llamando X, di contesta y la acepto»).
+  - Dices **«Jarvis, contesta»** (o «acepta», «atiende») → la acepta. **«Rechaza»** → la rechaza. **«Yo contesto»** → no hace nada.
+  - Si ya viste que suena, también puedes decir **«Jarvis, me están llamando por WhatsApp»**; si en 15 s no dices nada, contesta él.
+  - **Si no dices nada en 15 segundos**, Jarvis contesta, dice *«Hola, soy Jarvis, el asistente con IA de Martín. Si se quiere comunicar con él, espere o deje un mensaje»*, **te avisa al celular**, se queda 45 s en la línea, se despide y cuelga.
+  - Las **videollamadas no se contestan solas** (para no encender tu cámara): solo te llega el aviso al celular.
+  - Mientras hay una llamada, Jarvis no habla en voz alta ni toma como órdenes lo que oye (sale la voz de la otra persona por los parlantes), salvo que digas «Jarvis…».
+- **Aviso al celular** (elige uno en `.env`, mira `.env.example`): **ntfy.sh** (instala la app *ntfy*, suscríbete a un tema largo y secreto y ponlo en `NTFY_TOPIC`) o **Telegram** (`TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID`). Prueba con «Jarvis, prueba el aviso al celular».
+- **Que quien llama te oiga:** Windows no deja que un programa «hable» dentro de una llamada sin ayuda. Instala un cable de audio virtual gratuito (**VB-CABLE**), en WhatsApp → Ajustes → Voz y video elige *CABLE Output* como micrófono y en `config_local.py` pon `LLAMADA_AUDIO_SALIDA = "CABLE Input"`. Sin eso, Jarvis habla por los parlantes y el micrófono apenas lo capta.
+- **Importante, probado sin Windows:** la lógica (cuenta de 15 s, estados, avisos) está probada con pruebas automáticas, pero **los nombres de los botones de WhatsApp los tienes que comprobar tú una vez**: con una llamada sonando di **«Jarvis, diagnostica la llamada»**; te deja en el chat qué ventanas y botones ve. Si tus botones no se llaman «Aceptar / Rechazar / Finalizar», ajusta `LLAMADA_BTN_ACEPTAR`, `LLAMADA_BTN_RECHAZAR` y `LLAMADA_BTN_COLGAR` en `config_local.py`.
+- **Opciones** (`config_local.py`): `USUARIO_NOMBRE`, `LLAMADA_ESPERA_SEG`, `LLAMADA_PERMANENCIA_SEG`, `LLAMADA_SALUDO`, `LLAMADAS_AUTO_CONTESTAR = False` (solo avisa, nunca contesta solo), `LLAMADAS_VIGILAR = False`, `PERMISOS = {"llamadas": False}`.
+
+### Clic donde diga la pantalla (sin JSON)
+- Si pides tocar algo que no tiene nombre ni está en la lista de controles, Jarvis **mira tu pantalla principal** con un modelo con visión (el proveedor elegido; si falla, prueba los demás con clave) y hace clic donde está: «dale clic al icono rojo de arriba a la derecha». `clic_elemento` cae solo a esto cuando no encuentra el nombre.
+- Seguridad: las mismas reglas del control del PC (no actúa sobre terminales, Registro, UAC…), comprueba también **la ventana que hay bajo el punto** donde va a hacer clic, no guarda capturas y el texto que aparezca en la pantalla no se obedece. Si lo que describes parece delicado (pagar, comprar, eliminar, apagar…, ver `CLIC_VISUAL_RIESGO`), **te pregunta antes**. Esquina superior izquierda = parar.
+- Con proveedores solo de texto (Cloudflare, Mistral) no puede mirar la pantalla: usa Gemini, Groq, OpenRouter u Ollama con visión.
+
+### Instalar apps: Tienda primero, luego una versión segura
+- «Jarvis, instala Spotify»: busca en **Microsoft Store**; si hay una coincidencia clara, la instala.
+- Si **no está en la Tienda**, busca en el catálogo de **WinGet** (sus paquetes se revisan y el instalador se verifica con hash) y **te pregunta**: «Encontré X del editor Y, ¿la instalo?». Solo instala si dices que sí.
+- Si hay varias parecidas, te las lista y eliges. Si no está en ninguno, te lo dice: **no descarga instaladores de páginas web por su cuenta**.
+- Todo se instala solo para tu usuario, sin permisos de administrador.
+
+### Suspender, apagar y reiniciar
+- «Jarvis, apaga el computador / reinícialo / suspéndelo». **Siempre te pregunta primero** y solo actúa con tu «sí».
+- Apagar y reiniciar tienen **cuenta atrás de 15 s** (`ENERGIA_RETRASO_SEG`): di **«cancela el apagado»** (responde al instante, sin modelo) o `shutdown /a` en una terminal. No fuerza el cierre de programas: si algo tiene trabajo sin guardar, Windows te avisa.
+- Suspender usa la API de Windows; si tu PC no suspende, revisa que la suspensión esté activa en Configuración → Energía.
+- Apagar el permiso: `PERMISOS = {"energia": False}`.
+
 ## Pendiente
 - Canva: requiere su API (Canva Connect) y es más complejo; por ahora Jarvis puede abrir Canva en el navegador.
 

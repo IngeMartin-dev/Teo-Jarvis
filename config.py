@@ -89,6 +89,38 @@ APPS = {
 # True = pedir tu «sí» antes de enviar (False = se envía enseguida). Discord siempre se envía enseguida.
 CONFIRMAR_ENVIOS = {"correo": False, "whatsapp": False}
 
+# --- Llamadas de WhatsApp (llamadas.py) ---
+USUARIO_NOMBRE = "Martín"          # nombre que Jarvis dice al contestar por ti
+LLAMADAS_VIGILAR = True            # vigilar llamadas entrantes en WhatsApp Desktop
+LLAMADAS_AUTO_CONTESTAR = True     # si no respondes a tiempo, Jarvis contesta por ti (solo llamadas de voz)
+LLAMADA_ESPERA_SEG = 15            # segundos que te espera antes de contestar él
+LLAMADA_PERMANENCIA_SEG = 45       # cuánto se queda en la línea tras el saludo antes de despedirse y colgar
+LLAMADA_SALUDO = ("Hola, soy Jarvis, el asistente con IA de {usuario}. "
+                  "Si se quiere comunicar con él, espere o deje un mensaje.")
+LLAMADA_DESPEDIDA = "Le avisaré a {usuario} que usted llamó. Hasta luego."
+# Para que quien llama oiga a Jarvis hace falta un cable de audio virtual (ver README, «Llamadas de WhatsApp»).
+# Pon aquí parte del nombre del dispositivo de salida, por ejemplo "CABLE Input". Vacío = habla por los parlantes.
+LLAMADA_AUDIO_SALIDA = ""
+# Nombres de los botones de la ventana de llamada de WhatsApp (expresiones regulares). Si tu WhatsApp usa otros
+# textos, corre «Jarvis, diagnostica la llamada» con una llamada sonando y ajústalos en config_local.py.
+LLAMADA_BTN_ACEPTAR = r"\b(aceptar|accept|contestar|responder|answer|atender)\b"
+LLAMADA_BTN_RECHAZAR = r"\b(rechazar|decline|reject)\b"
+LLAMADA_BTN_COLGAR = r"\b(finalizar|terminar|colgar|end call|hang up|leave call|salir de la llamada)\b"
+
+# --- Energía (energia.py): segundos de cuenta atrás al apagar o reiniciar (5 a 300). Se puede cancelar en ese tiempo. ---
+ENERGIA_RETRASO_SEG = 15
+
+# --- Avisos al celular (notificaciones.py). Configura UNO de los dos en .env ---
+NTFY_TOPIC = os.getenv("NTFY_TOPIC", "")                    # ntfy.sh: sin cuenta; usa un nombre largo y secreto
+NTFY_SERVER = os.getenv("NTFY_SERVER", "https://ntfy.sh")
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")    # Telegram: bot de @BotFather
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
+
+# --- Clic por visión (tools_pc.clic_visual) ---
+# Si lo que pides tocar coincide con esto, Jarvis pide tu «sí» antes de hacer clic.
+CLIC_VISUAL_RIESGO = (r"\b(pagar|pago|comprar|compra|eliminar|borrar|formatear|desinstalar|transferir|"
+                      r"enviar dinero|vaciar|apagar|reiniciar|cerrar sesi[oó]n)\b")
+
 try:
     from config_local import *  # type: ignore  # noqa: F401,F403
 except ImportError:

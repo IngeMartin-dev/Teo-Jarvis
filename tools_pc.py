@@ -124,11 +124,10 @@ _TITULOS_CLAVE = re.compile(r"(contraseña|contrasena|password|iniciar sesión|i
 _COMBOS_BLOQUEADOS = [{"win", "r"}, {"win", "x"}, {"ctrl", "shift", "esc"}, {"ctrl", "alt", "delete"}, {"ctrl", "alt", "del"}]
 
 
-def _ventana() -> tuple:
-    """(título, ejecutable) de la ventana activa; vacíos si no se puede leer."""
+def _info_hwnd(h) -> tuple:
+    """(título, ejecutable) de la ventana h; vacíos si no se puede leer."""
     try:
         u, k = ctypes.windll.user32, ctypes.windll.kernel32
-        h = u.GetForegroundWindow()
         n = u.GetWindowTextLengthW(h)
         buf = ctypes.create_unicode_buffer(n + 1)
         u.GetWindowTextW(h, buf, n + 1)
@@ -142,6 +141,30 @@ def _ventana() -> tuple:
                 exe = Path(b2.value).name.lower()
             k.CloseHandle(hp)
         return buf.value, exe
+    except Exception:
+        return "", ""
+
+
+def _ventana() -> tuple:
+    """(título, ejecutable) de la ventana activa; vacíos si no se puede leer."""
+    try:
+        return _info_hwnd(ctypes.windll.user32.GetForegroundWindow())
+    except Exception:
+        return "", ""
+
+
+def _ventana_en(x: int, y: int) -> tuple:
+    """(título, ejecutable) de la ventana de nivel superior que está bajo el punto (x, y); vacíos si no se puede leer."""
+    try:
+        u = ctypes.windll.user32
+        u.WindowFromPoint.argtypes = [wintypes.POINT]
+        u.WindowFromPoint.restype = wintypes.HWND
+        u.GetAncestor.argtypes = [wintypes.HWND, wintypes.UINT]
+        u.GetAncestor.restype = wintypes.HWND
+        h = u.WindowFromPoint(wintypes.POINT(int(x), int(y)))
+        if not h:
+            return "", ""
+        return _info_hwnd(u.GetAncestor(h, 2) or h)   # 2 = GA_ROOT
     except Exception:
         return "", ""
 
@@ -329,14 +352,79 @@ def clic_elemento(nombre: str) -> str:
         els = _elementos(150)
         el = next((e for _t, n, e in els if n.casefold() == q), None) or \
              next((e for _t, n, e in els if q in n.casefold()), None)
-        if el is None:
-            return f"No encontré '{nombre}' en la ventana activa. Usa listar_elementos para ver qué hay."
+        if el is None:   # no está entre los controles con nombre: lo busca mirando la pantalla
+            return clic_visual(nombre)
         el.click_input()
         return f"Hice clic en «{nombre}»."
     except ImportError:
         return "Falta pywinauto. Ejecuta: python -m pip install -r requirements.txt"
     except Exception as e:
         return f"No pude hacer clic en '{nombre}': {e}"
+
+
+# ---- Clic por visión: cuando lo que pides no tiene nombre ni está en la lista de controles ----
+_clic_pendiente: dict = {}
+_CLIC_VIGENCIA = 300
+
+
+def _captura_principal() -> str:
+    """Captura de la pantalla principal como JPEG base64, solo en memoria (nunca se guarda en disco)."""
+    import base64, io
+    from PIL import ImageGrab
+    img = ImageGrab.grab()
+    img.thumbnail((1600, 1600))
+    buf = io.BytesIO()
+    img.convert("RGB").save(buf, format="JPEG", quality=80, optimize=True)
+    return base64.b64encode(buf.getvalue()).decode("ascii")
+
+
+def _clic_visual(descripcion: str, accion: str, confirmado: bool) -> str:
+    if (m := _control()):
+        return m
+    descripcion = (descripcion or "").strip()
+    if not descripcion or len(descripcion) > 150:
+        return "Dime qué quieres tocar, por ejemplo «el botón rojo de arriba a la derecha»."
+    accion = accion if accion in ("clic", "doble", "derecho", "mover") else "clic"
+    if not confirmado and re.search(getattr(config, "CLIC_VISUAL_RIESGO", r"$^"), descripcion, re.I):
+        _clic_pendiente.update(descripcion=descripcion, accion=accion, ts=time.time())
+        return (f"NO hice clic: «{descripcion}» parece una acción delicada. Pregúntale al usuario si de verdad quiere "
+                "que lo toque y usa confirmar_clic_visual solo si dice que sí.")
+    _clic_pendiente.clear()
+    try:
+        import vision
+        x1000, y1000, que = vision.ubicar(_captura_principal(), descripcion)
+    except RuntimeError as e:
+        return str(e)
+    except Exception as e:
+        return f"No pude mirar la pantalla: {e}"
+    if x1000 is None:
+        return f"No encontré «{descripcion}» en la pantalla ({que})."
+    try:
+        w, h = _pg().size()
+    except Exception as e:
+        return f"No pude leer el tamaño de la pantalla: {e}"
+    x, y = int(round(x1000 / 1000 * (w - 1))), int(round(y1000 / 1000 * (h - 1)))
+    # La ventana que está bajo ese punto también tiene que ser permitida (puede no ser la activa).
+    if (m := _bloqueo(*_ventana_en(x, y))):
+        return m
+    r = mover_mouse(x, y) if accion == "mover" else clic(x, y, "right" if accion == "derecho" else "left", accion == "doble")
+    if not r.startswith(("Hice", "Moví")):
+        return r
+    verbo = "Moví el mouse a" if accion == "mover" else "Hice clic" + (" doble" if accion == "doble" else "") + " en"
+    return f"{verbo} lo que parece «{que or descripcion}» según lo que veo en la pantalla ({x}, {y})."
+
+
+def clic_visual(descripcion: str, accion: str = "clic") -> str:
+    """Mira la pantalla principal con un modelo de visión y hace clic (o mueve el mouse) donde está `descripcion`."""
+    return _clic_visual(descripcion, accion, False)
+
+
+def confirmar_clic_visual() -> str:
+    """Hace el clic delicado que quedó pendiente. Solo después de que el usuario diga que sí."""
+    if not _clic_pendiente or time.time() - _clic_pendiente.get("ts", 0) > _CLIC_VIGENCIA:
+        _clic_pendiente.clear()
+        return "No hay ningún clic pendiente (o ya venció). Pídemelo de nuevo."
+    return _clic_visual(_clic_pendiente["descripcion"], _clic_pendiente["accion"], True)
 
 
 # ============================== WhatsApp Desktop ==============================
@@ -470,6 +558,10 @@ SPEC = [
     _t("listar_elementos", "Lista los botones, menús y campos con nombre de la ventana activa", {}, []),
     _t("clic_elemento", "Hace clic en un botón, menú, enlace o pestaña de la ventana activa por su nombre (preferido sobre clic con coordenadas)",
        {"nombre": S}, ["nombre"]),
+    _t("clic_visual", "Mira la pantalla y hace clic (o mueve el mouse) donde está lo que el usuario describe, aunque no tenga nombre "
+       "ni esté en la lista de controles: «dale clic al icono rojo de arriba a la derecha». clic_elemento ya lo usa solo si no encuentra el nombre",
+       {"descripcion": S, "accion": {"type": "string", "enum": ["clic", "doble", "derecho", "mover"]}}, ["descripcion"]),
+    _t("confirmar_clic_visual", "Hace el clic delicado que quedó pendiente. Solo después de que el usuario diga que sí", {}, []),
     _t("mover_mouse", "Mueve el mouse a coordenadas en píxeles de la pantalla", {"x": I, "y": I}, ["x", "y"]),
     _t("clic", "Hace clic con el mouse en coordenadas en píxeles de la pantalla",
        {"x": I, "y": I, "boton": {"type": "string", "enum": ["left", "right"]}, "doble": B}, ["x", "y"]),
