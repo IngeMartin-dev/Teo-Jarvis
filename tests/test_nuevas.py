@@ -50,6 +50,9 @@ class UIFalsa:
     def diagnostico(self):
         return "diag"
 
+    def instantanea(self):
+        return ["[whatsapp.exe] «WhatsApp» 300x500"] + (["[whatsapp.exe] «Llamada» 300x400", "    botones: Aceptar | Rechazar"] if self.info else [])
+
 
 def nuevo_gestor():
     reloj, ui = Reloj(), UIFalsa()
@@ -282,6 +285,34 @@ class TestLlamadas(unittest.TestCase):
             self.assertTrue(esperar(lambda: any(k == "llamada" for k, _ in reg.hablado)))
             self.assertIn("asistente con IA de Martín", [t for k, t in reg.hablado if k == "llamada"][0])
             self.assertTrue(esperar(lambda: len(reg.avisos) == 1))
+
+    def test_diagnostico_observa_y_reporta(self):
+        g, ui, reloj, reg = nuevo_gestor()
+        pasos = []
+
+        def dormir(s):
+            pasos.append(s)
+            reloj.avanzar(s)
+            if len(pasos) == 3:
+                ui.info = ENTRANTE                              # la llamada aparece durante la observación
+        g.dormir = dormir
+        out = g.manejar_texto("Jarvis, diagnostica la llamada")
+        self.assertIn("40 segundos", out)
+        self.assertTrue(esperar(lambda: any("NUEVO durante" in t for _q, t in reg.chat)))
+        informe = [t for _q, t in reg.chat if "NUEVO durante" in t][0]
+        self.assertIn("«Llamada»", informe.split("Ya estaba antes")[0])   # apareció después, no estaba al inicio
+        self.assertIn("Aceptar | Rechazar", informe)
+
+    def test_error_del_vigilante_se_muestra_una_vez(self):
+        g, ui, reloj, reg = nuevo_gestor()
+
+        def falla():
+            raise ImportError("No module named 'pywinauto'")
+        ui.buscar_llamada = falla
+        g.tick(); g.tick(); g.tick()
+        errores = [t for _q, t in reg.chat if "No puedo leer las ventanas" in t]
+        self.assertEqual(len(errores), 1)
+        self.assertIn("pywinauto", errores[0])
 
     def test_cuelga_durante_llamada_de_jarvis(self):
         g, ui, reloj, reg = nuevo_gestor()

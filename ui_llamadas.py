@@ -33,8 +33,8 @@ def _exe(pid: int) -> str:
         return ""
 
 
-def ventanas_whatsapp() -> list:
-    """Ventanas visibles de nivel superior de WhatsApp: [{hwnd, titulo, exe, w, h}]."""
+def ventanas_whatsapp(solo: bool = True) -> list:
+    """Ventanas visibles de nivel superior de WhatsApp (o todas con solo=False): [{hwnd, titulo, exe, w, h}]."""
     u = ctypes.WinDLL("user32")  # instancia propia: no toca los prototipos que usa el resto de Jarvis
     u.EnumWindows.argtypes = [ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM), wintypes.LPARAM]
     u.IsWindowVisible.argtypes = [wintypes.HWND]
@@ -54,7 +54,7 @@ def ventanas_whatsapp() -> list:
             pid = wintypes.DWORD()
             u.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
             exe = _exe(pid.value)
-            if "whatsapp" in exe or "whatsapp" in buf.value.lower():
+            if not solo or "whatsapp" in exe or "whatsapp" in buf.value.lower():
                 r = wintypes.RECT()
                 u.GetWindowRect(hwnd, ctypes.byref(r))
                 res.append({"hwnd": hwnd, "titulo": buf.value, "exe": exe, "w": r.right - r.left, "h": r.bottom - r.top})
@@ -142,6 +142,38 @@ def rechazar() -> bool:
 
 def colgar() -> bool:
     return _pulsar("LLAMADA_BTN_COLGAR")
+
+
+_SHELL = {"shellexperiencehost.exe", "applicationframehost.exe", "startmenuexperiencehost.exe", "searchhost.exe"}
+
+
+def instantanea() -> list:
+    """Líneas que describen lo que hay en pantalla ahora, para el diagnóstico de llamadas. Por privacidad solo muestra el
+    TÍTULO de las ventanas de WhatsApp, las pequeñas (avisos y ventanas emergentes) y las del shell de Windows (avisos);
+    de las demás solo el programa."""
+    lineas = []
+    try:
+        todas = ventanas_whatsapp(solo=False)
+    except Exception as e:
+        return [f"No pude listar las ventanas: {e}"]
+    for v in todas:
+        if v["w"] <= 0 or v["h"] <= 0:
+            continue
+        pequena = v["w"] <= 700 or v["h"] <= 500
+        wa = "whatsapp" in v["exe"] or "whatsapp" in v["titulo"].lower()
+        if wa or pequena or v["exe"] in _SHELL:
+            if not (v["titulo"] or wa or v["exe"] in _SHELL):
+                continue
+            lineas.append(f"[{v['exe'] or '?'}] «{v['titulo']}» {v['w']}x{v['h']}")
+            if wa and (pequena or re.search(r"llamada|call", v["titulo"], re.I)):
+                try:
+                    lineas.append("    botones: " + (" | ".join(n for n, _e in _controles(v["hwnd"], "Button")[:15]) or "(ninguno)"))
+                    lineas.append("    textos: " + (" | ".join(n for n, _e in _controles(v["hwnd"], "Text")[:10]) or "(ninguno)"))
+                except Exception as e:
+                    lineas.append(f"    no pude leer sus controles: {type(e).__name__}: {e}")
+        else:
+            lineas.append(f"[{v['exe'] or '?'}] (ventana grande, título oculto) {v['w']}x{v['h']}")
+    return lineas
 
 
 def diagnostico() -> str:

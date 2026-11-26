@@ -73,7 +73,11 @@ class Gestor:
     def _buscar(self):
         try:
             return self.ui.buscar_llamada()
-        except Exception:
+        except Exception as e:
+            msg = f"{type(e).__name__}: {e}"
+            if msg != getattr(self, "_ultimo_error", None):   # avisa de cada error distinto una sola vez
+                self._ultimo_error = msg
+                self._escribir("Jarvis", f"No puedo leer las ventanas de WhatsApp: {msg}")
             return None
 
     # ---------- utilidades ----------
@@ -296,13 +300,47 @@ class Gestor:
                 return "Va, es toda tuya. No la contesto."
         return "No hay ninguna llamada pendiente."
 
-    def diagnosticar(self) -> str:
+    def diagnosticar(self, segundos: int = 40) -> str:
+        """Observa la pantalla `segundos` segundos y reporta qué ventanas aparecen (para llamarte mientras tanto)."""
+        if getattr(self, "_observando", False):
+            return "Ya estoy observando. Llámame por WhatsApp desde otro teléfono."
+        self._observando = True
+        threading.Thread(target=self._observar, args=(segundos,), daemon=True).start()
+        return (f"Voy a observar {segundos} segundos. Llámame ahora por WhatsApp desde otro teléfono "
+                "y deja sonar la llamada. Te dejo el resultado en el chat.")
+
+    def _observar(self, segundos: int):
         try:
-            detalle = self.ui.diagnostico()
-        except Exception as e:
-            return f"No pude diagnosticar: {e}"
-        self._escribir("Jarvis", detalle)
-        return "Te dejé en el chat lo que veo en las ventanas de WhatsApp."
+            try:
+                base = list(self.ui.instantanea())
+            except Exception as e:
+                base = [f"No pude leer la pantalla: {type(e).__name__}: {e}"]
+            vistas, nuevas = set(base), []
+            fin = self.reloj() + segundos
+            while self.reloj() < fin:
+                self.dormir(2)
+                try:
+                    actual = list(self.ui.instantanea())
+                except Exception:
+                    continue
+                for l in actual:
+                    if l not in vistas:
+                        vistas.add(l)
+                        nuevas.append(l)
+            partes = ["NUEVO durante la observación:"] + (nuevas or ["(nada: no apareció ninguna ventana nueva)"]) + \
+                     ["", "Ya estaba antes:"] + base
+            informe = "\n".join(partes)
+            ruta = None
+            try:
+                from pathlib import Path
+                ruta = Path.home() / ".jarvis" / "diagnostico_llamada.txt"
+                ruta.write_text(informe, encoding="utf-8")
+            except Exception:
+                ruta = None
+            self._escribir("Jarvis", "Resultado de la observación (revisa que no haya nada privado antes de compartirlo):\n"
+                           + informe[:1800] + (f"\n\nGuardado en {ruta}" if ruta else ""))
+        finally:
+            self._observando = False
 
     # ---------- texto y voz ----------
     def _sin_wake(self, texto: str) -> str:
