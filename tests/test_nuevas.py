@@ -74,9 +74,10 @@ ACTIVA = {"tipo": "activa", "nombre": "Mamá", "video": False, "hwnd": 1}
 
 class TestLlamadas(unittest.TestCase):
     def setUp(self):   # estas pruebas miden la cuenta de 15 s; el valor por defecto de config.py es 0 (contesta ya)
-        p = mock.patch.object(config, "LLAMADA_ESPERA_SEG", 15)
-        p.start()
-        self.addCleanup(p.stop)
+        for nombre, valor in (("LLAMADA_ESPERA_SEG", 15), ("LLAMADA_ANUNCIAR", True)):
+            p = mock.patch.object(config, nombre, valor, create=True)
+            p.start()
+            self.addCleanup(p.stop)
 
     def test_usuario_contesta_antes_de_15s(self):
         g, ui, reloj, reg = nuevo_gestor()
@@ -273,6 +274,30 @@ class TestLlamadas(unittest.TestCase):
         self.assertTrue(esperar(lambda: g.estado == "ignorando"))
         self.assertTrue(esperar(lambda: len(reg.avisos) == 1))
         self.assertIn("no pude contestar", reg.avisos[0])
+
+    def test_espera_3s_sin_avisar_ni_pedir_permiso(self):
+        g, ui, reloj, reg = nuevo_gestor()
+        with mock.patch.object(config, "LLAMADA_ESPERA_SEG", 3), mock.patch.object(config, "LLAMADA_ANUNCIAR", False, create=True):
+            ui.info = ENTRANTE
+            g.tick()
+            self.assertEqual(reg.hablado, [])                 # no dice «di contesta»
+            self.assertEqual(g.deadline, reloj() + 3)
+            reloj.avanzar(2.9); g.tick()
+            self.assertEqual(ui.llamadas, [])                 # todavía no pasaron 3 s
+            reloj.avanzar(0.2); g.tick()
+            self.assertTrue(esperar(lambda: "aceptar" in ui.llamadas))
+            self.assertTrue(esperar(lambda: any(k == "llamada" for k, _ in reg.hablado)))
+            self.assertFalse(any(k == "normal" for k, _ in reg.hablado))   # nada de avisos por los parlantes
+            self.assertTrue(esperar(lambda: len(reg.avisos) == 1))
+
+    def test_en_los_3s_puede_decir_contesta_o_yo_contesto(self):
+        g, ui, reloj, reg = nuevo_gestor()
+        with mock.patch.object(config, "LLAMADA_ESPERA_SEG", 3), mock.patch.object(config, "LLAMADA_ANUNCIAR", False, create=True):
+            ui.info = ENTRANTE
+            g.tick()
+            self.assertIn("toda tuya", g.manejar_texto("yo me encargo"))
+            reloj.avanzar(10); g.tick()
+            self.assertEqual(ui.llamadas, [])
 
     def test_espera_cero_contesta_directo(self):
         g, ui, reloj, reg = nuevo_gestor()
