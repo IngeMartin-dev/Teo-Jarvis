@@ -93,7 +93,7 @@ CONFIRMAR_ENVIOS = {"correo": False, "whatsapp": False}
 USUARIO_NOMBRE = "Martín"          # nombre que Jarvis dice al contestar por ti
 LLAMADAS_VIGILAR = True            # vigilar llamadas entrantes en WhatsApp Desktop
 LLAMADAS_AUTO_CONTESTAR = True     # si no respondes a tiempo, Jarvis contesta por ti (solo llamadas de voz)
-LLAMADA_ESPERA_SEG = 3             # 0 = contesta de inmediato, sin avisarte ni esperar; pon 15 para darte 15 s para decir «contesta»
+LLAMADA_ESPERA_SEG = 0             # 0 = contesta de inmediato, sin avisarte ni esperar; pon 15 para darte 15 s para decir «contesta»
 LLAMADA_PERMANENCIA_SEG = 45       # cuánto se queda en la línea tras el saludo antes de despedirse y colgar
 LLAMADA_SALUDO = ("Hola, soy Jarvis, el asistente con IA de {usuario}. "
                   "Si se quiere comunicar con él, espere o deje un mensaje.")
