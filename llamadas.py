@@ -27,9 +27,6 @@ _RE_RECHAZAR = re.compile(r"\b(rechaza(la|r)?|rech[aá]zala|no\s+(la\s+)?contest
 _RE_ACEPTAR = re.compile(r"\b(contesta(la|r)?|cont[eé]stala|responde(la)?|resp[oó]ndela|acepta(la|r)?|ac[eé]ptala|"
                          r"atiende(la)?|at[ié]ndela|descuelga|toma\s+la\s+llamada)\b", re.I)
 _RE_DIAGNOSTICO = re.compile(r"\bdiagn[oó]stic\w*\b.*\bllamada\b|\bllamada\b.*\bdiagn[oó]stic\w*\b", re.I)
-_RE_PRUEBA_AVISO = re.compile(r"\b(prueb\w*|test\w*)\b.*\b(aviso|avisos|notificaci\w*)\b|"
-                              r"\b(aviso|avisos|notificaci\w*)\b.*\b(prueb\w*|test\w*)\b", re.I)
-_RE_CELULAR = re.compile(r"\b(celular|tel[eé]fono|m[oó]vil|ntfy)\b", re.I)
 _COLCHON_VOZ = 3.0   # segundos extra cuando el usuario avisa de la llamada (lo que tarda Jarvis en responder en voz alta)
 _PERDIDAS_MAX = 3    # lecturas seguidas sin ver la ventana antes de dar la llamada por terminada
 
@@ -327,9 +324,6 @@ class Gestor:
         habla_llamada = bool(_RE_LLAMADA.search(t))
         if _RE_DIAGNOSTICO.search(t):
             return self.diagnosticar()
-        if _RE_PRUEBA_AVISO.search(t) and _RE_CELULAR.search(t):   # sin modelo: así el resultado real siempre se oye
-            ok, msg = notificaciones.avisar_celular("Prueba de Jarvis: si lees esto, los avisos al celular funcionan.", "Jarvis")
-            return msg
         if est in ("esperando", "jarvis", "usuario") or habla_llamada:
             if _RE_YO.search(t):
                 return self.lo_tomo_yo()

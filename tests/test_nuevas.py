@@ -283,16 +283,6 @@ class TestLlamadas(unittest.TestCase):
             self.assertIn("asistente con IA de Martín", [t for k, t in reg.hablado if k == "llamada"][0])
             self.assertTrue(esperar(lambda: len(reg.avisos) == 1))
 
-    def test_prueba_de_aviso_no_pasa_por_el_modelo(self):
-        g, ui, reloj, reg = nuevo_gestor()
-        llamado = []
-        with mock.patch.object(notificaciones, "avisar_celular", side_effect=lambda *a, **k: (llamado.append(a) or (False, "No tengo configurado el aviso al celular."))):
-            self.assertIn("No tengo configurado", g.manejar_texto("Jarvis, prueba el aviso al celular"))
-            self.assertIn("No tengo configurado", g.manejar_texto("haz una prueba de notificación al teléfono"))
-            self.assertIsNone(g.manejar_texto("prueba el micrófono"))
-            self.assertIsNone(g.manejar_texto("avísame cuando termine"))
-        self.assertEqual(len(llamado), 2)
-
     def test_cuelga_durante_llamada_de_jarvis(self):
         g, ui, reloj, reg = nuevo_gestor()
         ui.info = ENTRANTE
