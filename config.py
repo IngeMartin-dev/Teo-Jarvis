@@ -68,7 +68,7 @@ DOCS_DIR.mkdir(parents=True, exist_ok=True)
 ROUTINES = {
     "inicia mi día": {
         "urls": ["https://www.instagram.com", "https://www.youtube.com"],
-        "apps": ["whatsapp"],
+        "apps": ["whatsapp", "claude", "visual studio code"],
         "say": "Buenos días. Todo listo para empezar tu día.",
     },
 }
