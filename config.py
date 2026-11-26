@@ -93,14 +93,14 @@ CONFIRMAR_ENVIOS = {"correo": False, "whatsapp": False}
 USUARIO_NOMBRE = "Martín"          # nombre que Jarvis dice al contestar por ti
 LLAMADAS_VIGILAR = True            # vigilar llamadas entrantes en WhatsApp Desktop
 LLAMADAS_AUTO_CONTESTAR = True     # si no respondes a tiempo, Jarvis contesta por ti (solo llamadas de voz)
-LLAMADA_ESPERA_SEG = 15            # segundos que te espera antes de contestar él
+LLAMADA_ESPERA_SEG = 0             # 0 = contesta de inmediato, sin avisarte ni esperar; pon 15 para darte 15 s para decir «contesta»
 LLAMADA_PERMANENCIA_SEG = 45       # cuánto se queda en la línea tras el saludo antes de despedirse y colgar
 LLAMADA_SALUDO = ("Hola, soy Jarvis, el asistente con IA de {usuario}. "
                   "Si se quiere comunicar con él, espere o deje un mensaje.")
 LLAMADA_DESPEDIDA = "Le avisaré a {usuario} que usted llamó. Hasta luego."
 # Para que quien llama oiga a Jarvis hace falta un cable de audio virtual (ver README, «Llamadas de WhatsApp»).
 # Pon aquí parte del nombre del dispositivo de salida, por ejemplo "CABLE Input". Vacío = habla por los parlantes.
-LLAMADA_AUDIO_SALIDA = ""
+LLAMADA_AUDIO_SALIDA = "CABLE Input"   # si no tienes VB-CABLE instalado, Jarvis habla por los parlantes
 # Nombres de los botones de la ventana de llamada de WhatsApp (expresiones regulares). Si tu WhatsApp usa otros
 # textos, corre «Jarvis, diagnostica la llamada» con una llamada sonando y ajústalos en config_local.py.
 LLAMADA_BTN_ACEPTAR = r"\b(aceptar|accept|contestar|responder|answer|atender)\b"
