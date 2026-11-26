@@ -104,7 +104,7 @@ def _exe(pid: int) -> str:
 
 
 def ventanas_whatsapp(solo: bool = True) -> list:
-    """Ventanas visibles de nivel superior de WhatsApp (o todas con solo=False): [{hwnd, titulo, exe, w, h}]."""
+    """Ventanas visibles de nivel superior de WhatsApp (o todas con solo=False): [{hwnd, titulo, exe, w, h, left, top}]."""
     u = ctypes.WinDLL("user32")  # instancia propia: no toca los prototipos que usa el resto de Jarvis
     u.EnumWindows.argtypes = [ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM), wintypes.LPARAM]
     u.IsWindowVisible.argtypes = [wintypes.HWND]
@@ -127,7 +127,8 @@ def ventanas_whatsapp(solo: bool = True) -> list:
             if not solo or "whatsapp" in exe or "whatsapp" in buf.value.lower():
                 r = wintypes.RECT()
                 u.GetWindowRect(hwnd, ctypes.byref(r))
-                res.append({"hwnd": hwnd, "titulo": buf.value, "exe": exe, "w": r.right - r.left, "h": r.bottom - r.top})
+                res.append({"hwnd": hwnd, "titulo": buf.value, "exe": exe, "w": r.right - r.left, "h": r.bottom - r.top,
+                            "left": r.left, "top": r.top})
         except Exception:
             pass
         return True
@@ -172,6 +173,30 @@ def _controles(hwnd, tipo: str) -> list:
     return res
 
 
+_ultimo_nombre: dict = {}
+
+
+def _titulo_activa(v: dict) -> bool:
+    """True si el título de la ventana es el de una llamada en curso (LLAMADA_TITULO_ACTIVA)."""
+    try:
+        return bool(re.search(getattr(config, "LLAMADA_TITULO_ACTIVA",
+                                      r"voice call|video call|llamada de voz|videollamada|^\s*llamada\b|^\s*call\b"),
+                              v.get("titulo", ""), re.I))
+    except re.error:
+        return False
+
+
+def centro_llamada():
+    """(x, y, ancho, alto) de la ventana de llamada en curso (o None), para buscar su botón de colgar mirando la pantalla."""
+    try:
+        for v in ventanas_whatsapp():
+            if _titulo_activa(v) and v["w"] > 0 and v["h"] > 0:
+                return v["left"], v["top"], v["w"], v["h"]
+    except Exception:
+        pass
+    return None
+
+
 def _nombre_llamante(textos: list) -> str:
     for t in textos:
         if 1 < len(t) <= 60 and not _GENERICOS.search(t):
@@ -194,12 +219,19 @@ def _analizar(v: dict):
         if "aceptar" in els or "colgar" in els:
             break
     info = None
-    if "aceptar" in els or "colgar" in els:
+    if "aceptar" not in els and "colgar" not in els and _titulo_activa(v):
+        # La ventana de llamada en curso (p. ej. «Voice call») solo expone minimizar/maximizar/cerrar: no tiene botones
+        # legibles, pero su título delata que hay una llamada. Se mantiene el nombre visto durante el timbre.
+        info = {"tipo": "activa", "hwnd": hwnd, "nombre": _ultimo_nombre.get("n", ""),
+                "video": bool(re.search(r"video", v["titulo"], re.I)), "solo_titulo": True}
+    elif "aceptar" in els or "colgar" in els:
         textos = [n for n, _e in _controles(hwnd, "Text")]
         todo = " ".join(textos + nombres + [v["titulo"]])
         info = {"tipo": "entrante" if "aceptar" in els else "activa", "hwnd": hwnd,
                 "nombre": _nombre_llamante(textos), "video": bool(re.search(r"video", todo, re.I))}
         _els[hwnd] = els
+        if info["nombre"]:
+            _ultimo_nombre["n"] = info["nombre"]
     _cache[hwnd] = {"t": time.time(), "info": info}
     registro.escribir(f"leí la ventana {v['titulo']!r} [{v['exe']}] {v['w']}x{v['h']} en {time.time() - t0:.1f}s -> "
                       f"{info} | controles: {nombres[:10]}")

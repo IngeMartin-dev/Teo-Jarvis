@@ -481,7 +481,7 @@ _GRUPOS = [
      {"suspender_pc", "apagar_pc", "reiniciar_pc", "confirmar_energia", "cancelar_energia"}),
     (("llamada", "llaman", "llamando", "contesta", "contéstala", "contestala", "atiende", "descuelga", "cuelga",
       "rechaza", "celular", "aviso"),
-     {"contestar_llamada", "rechazar_llamada", "diagnosticar_llamada", "probar_aviso_celular"}),
+     {"contestar_llamada", "rechazar_llamada", "diagnosticar_llamada", "probar_voz_llamada", "probar_aviso_celular"}),
     (("whatsapp", "wasap", "mensaje a", "mándale", "mandale", "escríbele", "escribele", "dile a"),
      {"enviar_whatsapp", "confirmar_whatsapp", "cancelar_whatsapp"}),
     (("mouse", "ratón", "raton", "clic", "click", "haz clic", "teclado", "escribe", "teclea", "tecla", "scroll",

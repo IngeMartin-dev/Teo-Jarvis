@@ -108,6 +108,11 @@ LLAMADA_AUDIO_SALIDA = "CABLE Input"   # si no tienes VB-CABLE instalado, Jarvis
 LLAMADA_UIA_TIMEOUT = 20
 LLAMADA_ACEPTAR_POR_VISION = True   # si UI Automation no logra pulsar «aceptar», lo busca en la pantalla (solo llamadas de voz)
 LLAMADA_BTN_ACEPTAR = r"\b(aceptar|Accept Call|contestar|responder|answer|atender|accept|Accept)\b"
+# Título de la ventana de una llamada EN CURSO (esa ventana no expone botones: se reconoce por su título).
+LLAMADA_TITULO_ACTIVA = r"voice call|video call|llamada de voz|videollamada|^\s*llamada\b|^\s*call\b"
+LLAMADA_RETRASO_SALUDO = 2.5       # segundos tras contestar antes de hablar (el audio de WhatsApp tarda en establecerse)
+LLAMADA_SALUDO_REPETIR = 2         # veces que dice el saludo (por si la primera se pierde al abrirse el audio)
+LLAMADA_COLGAR_POR_VISION = True   # si no halla el botón de colgar, lo busca en la pantalla
 LLAMADA_BTN_RECHAZAR = r"\b(rechazar|decline|reject)\b"
 LLAMADA_BTN_COLGAR = r"\b(finalizar|terminar|colgar|end call|hang up|leave call|salir de la llamada)\b"
 

@@ -52,59 +52,110 @@ def hablar(texto: str):
         time.sleep(0.4)  # deja que se apague el eco antes de volver a escuchar
 
 
-def _dispositivo_salida(parte: str):
-    """Índice del dispositivo de salida de audio cuyo nombre contiene `parte` (p. ej. «CABLE Input»), o None."""
+def _dispositivos_salida(parte: str) -> list:
+    """Índices de TODOS los dispositivos de salida cuyo nombre contiene `parte` (p. ej. «CABLE Input»). Windows lista el
+    mismo cable una vez por cada API de audio (MME, DirectSound, WASAPI...); se ordenan para probar primero MME."""
     import sounddevice as sd
     parte = parte.lower()
+    try:
+        apis = [a["name"] for a in sd.query_hostapis()]
+    except Exception:
+        apis = []
+    orden = {"MME": 0, "Windows DirectSound": 1, "Windows WASAPI": 2}
+    res = []
     for i, d in enumerate(sd.query_devices()):
         if d["max_output_channels"] > 0 and parte in d["name"].lower():
-            return i
-    return None
+            api = apis[d["hostapi"]] if apis and d.get("hostapi") is not None and d["hostapi"] < len(apis) else ""
+            res.append((orden.get(api, 9), i, d["name"], api))
+    res.sort()
+    return res
 
 
-def hablar_en_llamada(texto: str):
+def _dispositivo_salida(parte: str):
+    """Compatibilidad: el primer dispositivo que coincide, o None."""
+    try:
+        d = _dispositivos_salida(parte)
+    except Exception:
+        return None
+    return d[0][1] if d else None
+
+
+def _log(msg: str):
+    try:
+        import registro
+        registro.escribir("voz: " + msg)
+    except Exception:
+        pass
+
+
+def _sintetizar_wav(texto: str, ruta) -> tuple:
+    motor = pyttsx3.init()
+    motor.setProperty("rate", config.VOICE_RATE)
+    for v in motor.getProperty("voices"):
+        if "spanish" in v.name.lower() or "_es-" in v.id.lower():
+            motor.setProperty("voice", v.id)
+            break
+    motor.save_to_file(texto, str(ruta))
+    motor.runAndWait()
+    with wave.open(str(ruta), "rb") as w:
+        datos, canales, tasa, ancho = w.readframes(w.getnframes()), w.getnchannels(), w.getframerate(), w.getsampwidth()
+    if ancho != 2:
+        raise RuntimeError(f"formato de audio no compatible ({ancho * 8} bits)")
+    if not datos:
+        raise RuntimeError("la voz generó un audio vacío")
+    return datos, canales, tasa
+
+
+def hablar_en_llamada(texto: str) -> str:
     """Habla DENTRO de una llamada. Si LLAMADA_AUDIO_SALIDA apunta a un cable de audio virtual (VB-CABLE), manda la voz
-    allí para que quien llama la oiga limpia; si no, habla por los parlantes (el micrófono apenas la capta)."""
+    allí para que quien llama la oiga; si no, o si falla, habla por los parlantes. Anota todo en el registro de llamadas
+    y devuelve «cable» o «parlantes: <motivo>»."""
     if not (OK and config.VOICE_ENABLED):
-        return
+        return "voz desactivada"
     texto = re.sub(r"[*_`#]+", "", texto)[:500]
     destino = getattr(config, "LLAMADA_AUDIO_SALIDA", "")
     if not destino:
+        _log("LLAMADA_AUDIO_SALIDA vacío: hablo por los parlantes")
         _hablar_forzado(texto)
-        return
-    ruta = None
+        return "parlantes: sin cable configurado"
+    ruta, motivo = None, ""
     try:
         import sounddevice as sd
-        indice = _dispositivo_salida(destino)
-        if indice is None:
-            raise RuntimeError(f"no encuentro la salida de audio «{destino}»")
+        candidatos = _dispositivos_salida(destino)
+        _log(f"dispositivos de salida que coinciden con «{destino}»: {[(i, n, a) for _o, i, n, a in candidatos]}")
+        if not candidatos:
+            raise RuntimeError(f"no encuentro ninguna salida de audio llamada «{destino}» (¿instalaste VB-CABLE y reiniciaste?)")
         with _lock:
             set_estado("hablando")
             ruta = Path(tempfile.gettempdir()) / "jarvis_llamada.wav"
-            motor = pyttsx3.init()
-            motor.setProperty("rate", config.VOICE_RATE)
-            for v in motor.getProperty("voices"):
-                if "spanish" in v.name.lower() or "_es-" in v.id.lower():
-                    motor.setProperty("voice", v.id)
-                    break
-            motor.save_to_file(texto, str(ruta))
-            motor.runAndWait()
-            with wave.open(str(ruta), "rb") as w:
-                datos, canales, tasa, ancho = w.readframes(w.getnframes()), w.getnchannels(), w.getframerate(), w.getsampwidth()
-            if ancho != 2:
-                raise RuntimeError("formato de audio no compatible")
-            with sd.RawOutputStream(samplerate=tasa, channels=canales, dtype="int16", device=indice) as salida:
-                salida.write(datos)
-            time.sleep(0.3)
+            datos, canales, tasa = _sintetizar_wav(texto, ruta)
+            _log(f"audio generado: {len(datos)} bytes, {canales} canal(es), {tasa} Hz")
+            silencio = b"\x00" * (int(tasa * 0.6) * canales * 2)   # el cable «despierta» y se come el principio
+            datos = silencio + datos + silencio
+            ultimo = ""
+            for _o, i, nombre, api in candidatos:
+                try:
+                    with sd.RawOutputStream(samplerate=tasa, channels=canales, dtype="int16", device=i) as salida:
+                        salida.write(datos)
+                    _log(f"reproducido por [{i}] {nombre} ({api})")
+                    time.sleep(0.3)
+                    return "cable"
+                except Exception as e:
+                    ultimo = f"[{i}] {nombre} ({api}): {type(e).__name__}: {e}"
+                    _log("falló " + ultimo)
+            raise RuntimeError("ningún dispositivo aceptó el audio; último error " + ultimo)
     except Exception as e:
+        motivo = str(e)
+        _log(f"no pude hablar por «{destino}»: {type(e).__name__}: {e}; uso los parlantes")
         print(f"[voz] No pude hablar por «{destino}» ({e}); uso los parlantes.")
-        _hablar_forzado(texto)
     finally:
         if ruta is not None:
             try:
                 ruta.unlink()
             except OSError:
                 pass
+    _hablar_forzado(texto)
+    return "parlantes: " + motivo
 
 
 def _hablar_forzado(texto: str):

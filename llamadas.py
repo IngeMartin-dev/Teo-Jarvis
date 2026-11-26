@@ -30,6 +30,8 @@ _RE_RECHAZAR = re.compile(r"\b(rechaza(la|r)?|rech[aá]zala|no\s+(la\s+)?contest
                           r"no\s+(la\s+)?atiendas|cuelga(la)?|colgar|ignora(la|r)?)\b", re.I)
 _RE_ACEPTAR = re.compile(r"\b(contesta(la|r)?|cont[eé]stala|responde(la)?|resp[oó]ndela|acepta(la|r)?|ac[eé]ptala|"
                          r"atiende(la)?|at[ié]ndela|descuelga|toma\s+la\s+llamada)\b", re.I)
+_RE_PRUEBA_VOZ = re.compile(r"\b(prueba|probar|probemos|testea|test)\b.*\bvoz\b.*\b(llamada|cable)\b|"
+                            r"\b(prueba|probar)\b.*\b(cable|audio)\b.*\bllamada\b", re.I)
 _RE_DIAGNOSTICO = re.compile(r"\bdiagn[oó]stic\w*\b.*\bllamada\b|\bllamada\b.*\bdiagn[oó]stic\w*\b", re.I)
 _COLCHON_VOZ = 3.0   # segundos extra cuando el usuario avisa de la llamada (lo que tarda Jarvis en responder en voz alta)
 _PERDIDAS_MAX = 3    # lecturas seguidas sin ver la ventana antes de dar la llamada por terminada
@@ -276,9 +278,19 @@ class Gestor:
         self._escribir("Jarvis", f"Contesté la llamada de {self._quien(info)}.")
         self._notificar(info, f"{self._quien(info)} te está llamando por WhatsApp. "
                         "Jarvis contestó y dijo que esperen o dejen un mensaje.")
-        self.dormir(1.2)   # deja que se establezca el audio antes de hablar
+        self.dormir(_cfg("LLAMADA_RETRASO_SALUDO", 2.5))   # deja que se establezca el audio antes de hablar
+        saludo = _cfg("LLAMADA_SALUDO", "Hola, soy Jarvis.").format(usuario=self._usuario())
         try:
-            self._hablar_llamada(_cfg("LLAMADA_SALUDO", "Hola, soy Jarvis.").format(usuario=self._usuario()))
+            for n in range(max(1, int(_cfg("LLAMADA_SALUDO_REPETIR", 2)))):
+                if n:
+                    self.dormir(1.5)
+                    if self.estado != "jarvis" or self._colgar_pedido:
+                        break
+                resultado = self._hablar_llamada(saludo)
+                registro.escribir(f"saludo {n + 1}: {resultado}")
+                if isinstance(resultado, str) and resultado.startswith("parlantes"):
+                    self._escribir("Jarvis", "El saludo salió por los parlantes, no por el cable: " + resultado)
+                    break   # repetir por los parlantes solo molestaría
         except Exception as e:
             registro.escribir(f"no pude decir el saludo: {type(e).__name__}: {e}")
         finally:
@@ -286,6 +298,23 @@ class Gestor:
                 self._hablando = False
                 if self.estado == "jarvis":
                     self.hasta = self.reloj() + (0 if self._colgar_pedido else _cfg("LLAMADA_PERMANENCIA_SEG", 45))
+
+    def _colgar_por_vision(self) -> bool:
+        """La ventana de llamada en curso no expone el botón de colgar: se pone el mouse sobre ella (los controles de
+        WhatsApp aparecen al pasar el mouse) y se busca el botón rojo mirando la pantalla."""
+        try:
+            import tools_pc
+            centro = getattr(self.ui, "centro_llamada", lambda: None)()
+            if centro:
+                x, y, w, h = centro
+                tools_pc.mover_mouse(int(x + w / 2), int(y + h / 2))
+                self.dormir(0.8)
+            res = tools_pc.clic_visual("el botón rojo para colgar o finalizar la llamada de WhatsApp en curso")
+            registro.escribir(f"colgar por visión: {res[:150]}")
+            return res.startswith("Hice clic")
+        except Exception as e:
+            registro.escribir(f"colgar por visión falló: {type(e).__name__}: {e}")
+            return False
 
     def _despedir_y_colgar(self):
         """Se llama con el lock tomado."""
@@ -300,8 +329,11 @@ class Gestor:
             ok = False
             try:
                 ok = self.ui.colgar()
-            except Exception:
-                pass
+            except Exception as e:
+                registro.escribir(f"colgar por UI Automation falló: {type(e).__name__}: {e}")
+            registro.escribir(f"colgar por UI Automation: {ok}")
+            if not ok and _cfg("LLAMADA_COLGAR_POR_VISION", True):
+                ok = self._colgar_por_vision()
             if not ok:
                 self._escribir("Jarvis", "No pude colgar la llamada; cuélgala tú.")
             with self._lock:
@@ -355,6 +387,8 @@ class Gestor:
             ok = self.ui.colgar() if est == "usuario" else self.ui.rechazar()
         except Exception as e:
             registro.escribir(f"rechazar/colgar falló: {type(e).__name__}: {e}")
+        if not ok and est == "usuario" and _cfg("LLAMADA_COLGAR_POR_VISION", True):
+            ok = self._colgar_por_vision()
         with self._lock:
             if est in ("esperando", "aceptando", "usuario") and self.estado == est:
                 self._reset()
@@ -369,6 +403,15 @@ class Gestor:
                 self._fijar("usuario")
                 return "Va, es toda tuya. No la contesto."
         return "No hay ninguna llamada pendiente."
+
+    def probar_voz(self) -> str:
+        """Dice el saludo por la salida de la llamada (el cable) SIN necesidad de una llamada, para ajustar el audio."""
+        r = self._hablar_llamada("Prueba de voz de Jarvis para llamadas. Si me oyes por WhatsApp, todo está bien.")
+        registro.escribir(f"prueba de voz: {r}")
+        if isinstance(r, str) and r.startswith("cable"):
+            return ("Hablé por el cable de audio. Si quien llama no lo oye, en WhatsApp → Ajustes → Voz y video el micrófono "
+                    "debe ser «CABLE Output». Para oírlo tú, activa «Escuchar este dispositivo» en CABLE Output.")
+        return f"No salió por el cable ({r}). Mira llamadas.log para ver el motivo."
 
     def diagnosticar(self, segundos: int = 30) -> str:
         """Observa la pantalla `segundos` segundos y reporta qué ventanas aparecen (para llamarte mientras tanto)."""
@@ -436,6 +479,8 @@ class Gestor:
         t = self._sin_wake(texto)
         est = self.estado
         habla_llamada = bool(_RE_LLAMADA.search(t))
+        if _RE_PRUEBA_VOZ.search(t):
+            return self.probar_voz()
         if _RE_DIAGNOSTICO.search(t):
             return self.diagnosticar()
         if est in ("esperando", "aceptando", "jarvis", "usuario") or habla_llamada:
@@ -493,7 +538,7 @@ def _hablar_normal(texto: str):
 
 def _hablar_en_llamada(texto: str):
     import voice
-    voice.hablar_en_llamada(texto)
+    return voice.hablar_en_llamada(texto)
 
 
 def _marcar_en_llamada(activo: bool):
@@ -536,6 +581,11 @@ def rechazar_llamada() -> str:
     return obtener().rechazar_usuario()
 
 
+def probar_voz_llamada() -> str:
+    """Prueba el audio que oiría quien llama (habla por el cable de audio virtual). No necesita una llamada."""
+    return obtener().probar_voz()
+
+
 def diagnosticar_llamada() -> str:
     """Muestra qué ventanas y botones de WhatsApp ve Jarvis. Úsalo con una llamada sonando."""
     return obtener().diagnosticar()
@@ -555,6 +605,7 @@ SPEC = [
     _t("contestar_llamada", "Acepta la llamada entrante de WhatsApp que está sonando. Úsalo cuando el usuario pida contestar o aceptar una llamada de WhatsApp.", {}, []),
     _t("rechazar_llamada", "Rechaza la llamada entrante de WhatsApp que está sonando", {}, []),
     _t("diagnosticar_llamada", "Muestra qué ventanas y botones de WhatsApp ve Jarvis (para ajustar la detección de llamadas; úsalo con una llamada sonando)", {}, []),
+    _t("probar_voz_llamada", "Prueba la voz de Jarvis hacia el cable de audio de las llamadas de WhatsApp", {}, []),
     _t("probar_aviso_celular", "Envía un aviso de prueba al celular del usuario", {}, []),
 ]
 REGISTRY = {f["function"]["name"]: globals()[f["function"]["name"]] for f in SPEC}

@@ -496,6 +496,64 @@ class TestLlamadas(unittest.TestCase):
         self.assertTrue(esperar(lambda: "colgar" in ui.llamadas))
 
 
+class TestLlamadaActivaYVoz(unittest.TestCase):
+    def test_ventana_voice_call_sin_botones_es_llamada_activa(self):
+        v = {"hwnd": 9, "titulo": "Voice call", "exe": "whatsapp.root.exe", "w": 240, "h": 200, "left": 10, "top": 20}
+        ui_llamadas._cache.clear()
+        with mock.patch.object(ui_llamadas, "_controles", return_value=[("Minimize", object()), ("Close", object())]):
+            info = ui_llamadas._analizar(v)
+        self.assertEqual(info["tipo"], "activa")
+        ui_llamadas._cache.clear()
+
+    def test_ventana_sin_titulo_de_llamada_ni_botones_no_es_llamada(self):
+        v = {"hwnd": 9, "titulo": "WhatsApp", "exe": "whatsapp.root.exe", "w": 240, "h": 200, "left": 0, "top": 0}
+        with mock.patch.object(ui_llamadas, "_controles", return_value=[("Minimize", object())]):
+            self.assertIsNone(ui_llamadas._analizar(v))
+        ui_llamadas._cache.clear()
+
+    def test_cable_prueba_otros_dispositivos_si_el_primero_falla(self):
+        usados = []
+
+        class Motor:
+            def setProperty(self, *a): pass
+            def getProperty(self, n): return []
+            def save_to_file(self, texto, ruta):
+                with wave.open(ruta, "wb") as w:
+                    w.setnchannels(1); w.setsampwidth(2); w.setframerate(22050)
+                    w.writeframes(struct.pack("<50h", *range(50)))
+            def runAndWait(self): pass
+
+        class Flujo:
+            def __init__(self, **kw):
+                usados.append(kw["device"])
+                if kw["device"] == 1:
+                    raise OSError("dispositivo ocupado")
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+            def write(self, d): pass
+
+        sd = types.SimpleNamespace(
+            query_hostapis=lambda: [{"name": "MME"}, {"name": "Windows WASAPI"}],
+            query_devices=lambda: [{"name": "Altavoces", "max_output_channels": 2, "hostapi": 0},
+                                   {"name": "CABLE Input (VB-Audio)", "max_output_channels": 2, "hostapi": 0},
+                                   {"name": "CABLE Input (VB-Audio)", "max_output_channels": 2, "hostapi": 1}],
+            RawOutputStream=Flujo)
+        with mock.patch.dict(sys.modules, {"sounddevice": sd}), mock.patch.object(voice, "OK", True), \
+                mock.patch.object(voice, "pyttsx3", types.SimpleNamespace(init=lambda: Motor()), create=True), \
+                mock.patch.object(config, "LLAMADA_AUDIO_SALIDA", "cable input"), mock.patch.object(config, "VOICE_ENABLED", True):
+            self.assertEqual(voice.hablar_en_llamada("Hola"), "cable")
+        self.assertEqual(usados, [1, 2])
+
+    def test_prueba_de_voz_por_comando(self):
+        g = llamadas.Gestor(hablar_llamada=lambda t: "cable")
+        r = g.manejar_texto("jarvis prueba la voz de la llamada")
+        self.assertIn("cable", r.lower())
+
+    def test_cae_a_parlantes_y_lo_dice(self):
+        g = llamadas.Gestor(hablar_llamada=lambda t: "parlantes: no encuentro")
+        self.assertIn("No salió por el cable", g.probar_voz())
+
+
 class TestUIALimites(unittest.TestCase):
     """El hilo de UI Automation: límites de tiempo y tareas viejas (no necesita Windows)."""
 
@@ -880,10 +938,11 @@ class TestVoz(unittest.TestCase):
                 mock.patch.object(voice, "pyttsx3", types.SimpleNamespace(init=lambda: Motor()), create=True), \
                 mock.patch.object(config, "LLAMADA_AUDIO_SALIDA", "cable input"), \
                 mock.patch.object(config, "VOICE_ENABLED", True):
-            voice.hablar_en_llamada("Hola, soy Jarvis")
+            r = voice.hablar_en_llamada("Hola, soy Jarvis")
+        self.assertEqual(r, "cable")
         self.assertEqual(escrito["kw"]["device"], 1)
         self.assertEqual(escrito["kw"]["samplerate"], 22050)
-        self.assertEqual(escrito["bytes"], 200)
+        self.assertGreater(escrito["bytes"], 200)   # la voz más el silencio de relleno
 
     def test_hablar_en_llamada_sin_cable_usa_parlantes(self):
         with mock.patch.object(voice, "OK", True), mock.patch.object(voice, "_hablar_forzado") as f, \
