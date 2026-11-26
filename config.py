@@ -104,6 +104,9 @@ LLAMADA_DESPEDIDA = "Le avisaré a {usuario} que usted llamó. Hasta luego."
 LLAMADA_AUDIO_SALIDA = "CABLE Input"   # si no tienes VB-CABLE instalado, Jarvis habla por los parlantes
 # Nombres de los botones de la ventana de llamada de WhatsApp (expresiones regulares). Si tu WhatsApp usa otros
 # textos, corre «Jarvis, diagnostica la llamada» con una llamada sonando y ajústalos en config_local.py.
+# Leer los botones de WhatsApp (app WebView2) es lento: segundos máximos por lectura, y segundo intento mirando la pantalla.
+LLAMADA_UIA_TIMEOUT = 20
+LLAMADA_ACEPTAR_POR_VISION = True   # si UI Automation no logra pulsar «aceptar», lo busca en la pantalla (solo llamadas de voz)
 LLAMADA_BTN_ACEPTAR = r"\b(aceptar|Accept Call|contestar|responder|answer|atender|accept|Accept)\b"
 LLAMADA_BTN_RECHAZAR = r"\b(rechazar|decline|reject)\b"
 LLAMADA_BTN_COLGAR = r"\b(finalizar|terminar|colgar|end call|hang up|leave call|salir de la llamada)\b"

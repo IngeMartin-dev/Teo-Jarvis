@@ -11,7 +11,7 @@ Las videollamadas nunca se contestan solas (para no encender tu cámara): solo t
 La lógica está separada de Windows (ui_llamadas.py) para poder probarla sin WhatsApp.
 """
 import re, sys, threading, time
-import config, notificaciones
+import config, notificaciones, registro
 
 # pywinauto/UI Automation works in STA. Set this before its lazy import in
 # ui_llamadas.py so pywinauto does not first try MTA and then warn/fallback.
@@ -33,6 +33,8 @@ _RE_ACEPTAR = re.compile(r"\b(contesta(la|r)?|cont[eé]stala|responde(la)?|resp[
 _RE_DIAGNOSTICO = re.compile(r"\bdiagn[oó]stic\w*\b.*\bllamada\b|\bllamada\b.*\bdiagn[oó]stic\w*\b", re.I)
 _COLCHON_VOZ = 3.0   # segundos extra cuando el usuario avisa de la llamada (lo que tarda Jarvis en responder en voz alta)
 _PERDIDAS_MAX = 3    # lecturas seguidas sin ver la ventana antes de dar la llamada por terminada
+_ERROR = object()    # la lectura de la pantalla falló o se agotó: no se sabe si hay llamada (NO es «no hay llamada»)
+_LIMITE_ESTADO = {"esperando": 120, "aceptando": 120, "jarvis": 900, "ignorando": 300, "usuario": 3600}   # segundos
 
 
 def _cfg(nombre, defecto):
@@ -45,7 +47,9 @@ def _permitido() -> bool:
 
 class Gestor:
     """Máquina de estados de las llamadas. Estados:
-    libre | esperando (suena; cuenta atrás) | jarvis (la contestó Jarvis) | usuario (la contestaste tú) | ignorando."""
+    libre | esperando (suena; cuenta atrás) | aceptando (Jarvis está pulsando «aceptar»; todavía NO silencia nada) |
+    jarvis (la contestó Jarvis) | usuario (la contestaste tú) | ignorando.
+    Solo «jarvis» y «usuario» silencian la voz de Jarvis, y solo después de comprobar que la llamada se contestó."""
 
     def __init__(self, ui=None, hablar=None, hablar_llamada=None, avisar=None, escribir=None,
                  reloj=time.time, dormir=time.sleep, en_llamada=None):
@@ -65,6 +69,8 @@ class Gestor:
         self._hablando = False
         self._colgar_pedido = False
         self._perdidas = 0
+        self._desde = 0.0          # desde cuándo está en el estado actual (para el temporizador de seguridad)
+        self._observando = False
 
     # ---------- acceso a la interfaz de Windows (perezoso: así se puede probar sin Windows) ----------
     @property
@@ -75,19 +81,25 @@ class Gestor:
         return self._ui
 
     def _buscar(self):
+        """Info de la llamada, None si no hay, o _ERROR si no se pudo leer (no se confunde con «no hay llamada»)."""
         try:
             return self.ui.buscar_llamada()
         except Exception as e:
             msg = f"{type(e).__name__}: {e}"
+            registro.escribir(f"error leyendo WhatsApp: {msg}")
             if msg != getattr(self, "_ultimo_error", None):   # avisa de cada error distinto una sola vez
                 self._ultimo_error = msg
                 self._escribir("Jarvis", f"No puedo leer las ventanas de WhatsApp: {msg}")
-            return None
+            return _ERROR
 
     # ---------- utilidades ----------
     def _fijar(self, estado: str):
+        anterior = self.estado
         self.estado = estado
+        self._desde = self.reloj()
         self._en_llamada(estado in ("jarvis", "usuario"))
+        if anterior != estado:
+            registro.escribir(f"estado: {anterior} -> {estado}")
 
     def _reset(self):
         self.info, self.origen, self.deadline, self.hasta = None, "", None, None
@@ -112,10 +124,21 @@ class Gestor:
         if not _permitido() or not _cfg("LLAMADAS_VIGILAR", True):
             return
         info = self._buscar()
+        fallo = info is _ERROR          # no se pudo leer: ni suma ni resta «llamadas perdidas»
+        if fallo:
+            info = None
         ahora = self.reloj()
         with self._lock:
             est = self.estado
-            self._perdidas = 0 if info else self._perdidas + 1
+            # Temporizador de seguridad: ningún estado puede quedarse pegado (y dejar a Jarvis mudo) para siempre.
+            limite = _cfg("LLAMADA_MAX_SEG", None) or _LIMITE_ESTADO.get(est)
+            if est != "libre" and limite and self._desde and ahora - self._desde > limite:
+                registro.escribir(f"temporizador de seguridad: llevaba {ahora - self._desde:.0f}s en «{est}»; reinicio")
+                self._escribir("Jarvis", f"Reinicié el estado de llamadas (llevaba demasiado tiempo en «{est}»).")
+                self._reset()
+                return
+            if not fallo:
+                self._perdidas = 0 if info else self._perdidas + 1
             if est == "libre":
                 if info and info["tipo"] == "entrante":
                     self._empezar_espera(info, "auto", ahora)
@@ -137,24 +160,23 @@ class Gestor:
             elif est in ("usuario", "ignorando"):
                 if self._perdidas >= _PERDIDAS_MAX:
                     self._reset()
+            # est == "aceptando": lo resuelve _atender; el temporizador de arriba es la red de seguridad
 
     def ejecutar(self):
-        """Bucle del hilo vigilante."""
-        try:  # pywinauto usa COM; este hilo necesita inicializarlo
-            import comtypes
-            comtypes.CoInitializeEx(comtypes.COINIT_APARTMENTTHREADED)
-        except Exception:
-            pass
+        """Bucle del hilo vigilante. No toca UI Automation directamente: eso lo hace ui_llamadas en su propio hilo."""
+        registro.escribir("vigilante de llamadas iniciado")
         while True:
             try:
                 self.tick()
             except Exception as e:
+                registro.escribir(f"error en el vigilante: {type(e).__name__}: {e}")
                 self._escribir("Jarvis", f"Error vigilando llamadas: {e}")
                 self.dormir(5)
             self.dormir(_cfg("LLAMADAS_INTERVALO", 1.0))
 
     # ---------- empezar la espera ----------
     def _empezar_espera(self, info, origen: str, ahora: float):
+        registro.escribir(f"llamada detectada ({origen}): {info}")
         self.info, self.origen, self._perdidas = info, origen, 0
         self.hasta = None
         self._fijar("esperando")
@@ -194,23 +216,60 @@ class Gestor:
             self._escribir("Jarvis", "Es una videollamada: no la contesto sola. Te avisé al celular.")
             return
         self._hablando = True
-        self._fijar("jarvis")
+        self._fijar("aceptando")   # todavía no se silencia nada: primero hay que comprobar que contestó
         threading.Thread(target=self._atender, args=(info,), daemon=True).start()
 
     def _en_hilo(self, fn, *args):
         threading.Thread(target=fn, args=args, daemon=True).start()
 
-    def _atender(self, info):
+    def _intentar_aceptar(self) -> bool:
+        """Pulsa «aceptar» con UI Automation y, si no se pudo, lo intenta mirando la pantalla (LLAMADA_ACEPTAR_POR_VISION)."""
         ok = False
         try:
-            ok = self.ui.aceptar()
-        except Exception:
-            ok = False
-        if not ok:
-            with self._lock:
+            ok = bool(self.ui.aceptar())
+        except Exception as e:
+            registro.escribir(f"aceptar por UI Automation falló: {type(e).__name__}: {e}")
+        registro.escribir(f"aceptar por UI Automation: {ok}")
+        if not ok and _cfg("LLAMADA_ACEPTAR_POR_VISION", True):
+            ok = self._aceptar_por_vision()
+        return ok
+
+    def _aceptar_por_vision(self) -> bool:
+        """Segundo intento: mira la pantalla con el modelo de visión, comprueba que sea una llamada de VOZ (nunca de video,
+        para no encender la cámara) y hace clic en el botón verde."""
+        try:
+            import tools_pc, vision
+            captura = tools_pc._captura_principal()
+            r = vision.preguntar(captura, "Mira esta captura de pantalla de Windows. ¿Hay una ventana emergente de llamada "
+                                          "ENTRANTE de WhatsApp? Responde SOLO una palabra: VOZ si es una llamada de voz, "
+                                          "VIDEO si es una videollamada, NADA si no hay ninguna llamada.").upper()
+            registro.escribir(f"visión: tipo de llamada = {r[:40]!r}")
+            if "VOZ" not in r or "VIDEO" in r or "NADA" in r:
+                return False
+            res = tools_pc.clic_visual("el botón verde para aceptar la llamada de voz entrante de WhatsApp "
+                                       "(dice Accept Call o Aceptar)")
+            registro.escribir(f"visión: {res[:150]}")
+            return res.startswith("Hice clic")
+        except Exception as e:
+            registro.escribir(f"visión falló: {type(e).__name__}: {e}")
+            return False
+
+    def _atender(self, info):
+        ok = self._intentar_aceptar()
+        with self._lock:
+            if self.estado != "aceptando":       # mientras tanto la tomaste tú, la rechazaste o colgaron
                 self._hablando = False
-                self._fijar("ignorando")
-            self._escribir("Jarvis", "No logré contestar la llamada de WhatsApp.")
+                registro.escribir(f"la llamada cambió mientras aceptaba (estado {self.estado}); no hablo")
+                return
+            if not ok:
+                self._hablando = False
+                self._fijar("ignorando")         # sin silenciar: Jarvis sigue funcionando normal
+            else:
+                self._hablando = True
+                self._fijar("jarvis")            # recién ahora se silencia la voz de Jarvis
+        if not ok:
+            self._escribir("Jarvis", "No logré contestar la llamada de WhatsApp. Si quieres saber por qué, di «diagnostica la llamada» "
+                                     "o mira el archivo de registro llamadas.log.")
             if (info or {}).get("tipo") == "entrante":   # solo avisa si de verdad había una llamada visible
                 self._notificar(info, f"{self._quien(info)} te está llamando por WhatsApp y no pude contestar.")
             return
@@ -220,6 +279,8 @@ class Gestor:
         self.dormir(1.2)   # deja que se establezca el audio antes de hablar
         try:
             self._hablar_llamada(_cfg("LLAMADA_SALUDO", "Hola, soy Jarvis.").format(usuario=self._usuario()))
+        except Exception as e:
+            registro.escribir(f"no pude decir el saludo: {type(e).__name__}: {e}")
         finally:
             with self._lock:
                 self._hablando = False
@@ -250,6 +311,8 @@ class Gestor:
     # ---------- órdenes del usuario ----------
     def anunciar_usuario(self) -> str:
         info = self._buscar()   # fuera del lock: leer la pantalla puede tardar un par de segundos
+        if info is _ERROR:      # no se pudo leer: se sigue como si no se viera nada todavía
+            info = None
         with self._lock:
             if self.estado == "esperando":
                 return "Ya estoy atento a esa llamada. Di «contesta» y la acepto."
@@ -261,17 +324,18 @@ class Gestor:
 
     def aceptar_usuario(self) -> str:
         with self._lock:
+            if self.estado == "aceptando":
+                return "Ya la estoy contestando."
+            if self.estado in ("jarvis", "usuario"):
+                return "Ya hay una llamada en curso."
             self.deadline = None
-            ok = False
-            try:
-                ok = self.ui.aceptar()
-            except Exception:
-                pass
+        ok = self._intentar_aceptar()     # fuera del candado: leer WhatsApp puede tardar y no debe congelar nada
+        with self._lock:
             if not ok:
                 if self.estado == "esperando":
                     self._reset()
-                return ("No veo ninguna llamada entrante de WhatsApp que pueda contestar. "
-                        "Si está sonando, di «diagnostica la llamada».")
+                return ("No logré contestar la llamada de WhatsApp (no encontré el botón). "
+                        "Di «diagnostica la llamada» o mira llamadas.log.")
             self.hasta, self._perdidas = None, 0
             self._fijar("usuario")
         return "Listo, la contesté."
@@ -286,57 +350,29 @@ class Gestor:
                 else:
                     self.hasta = self.reloj()
                 return "Voy a colgar la llamada."
-            ok = False
-            try:
-                ok = self.ui.colgar() if est == "usuario" else self.ui.rechazar()
-            except Exception:
-                pass
-            if est in ("esperando", "usuario"):
+        ok = False
+        try:                                          # fuera del candado: puede tardar
+            ok = self.ui.colgar() if est == "usuario" else self.ui.rechazar()
+        except Exception as e:
+            registro.escribir(f"rechazar/colgar falló: {type(e).__name__}: {e}")
+        with self._lock:
+            if est in ("esperando", "aceptando", "usuario") and self.estado == est:
                 self._reset()
-            if est == "usuario":
-                return "Llamada colgada." if ok else "No pude colgar la llamada; cuélgala tú."
+        if est == "usuario":
+            return "Llamada colgada." if ok else "No pude colgar la llamada; cuélgala tú."
         return "Llamada rechazada." if ok else "No veo ninguna llamada que pueda rechazar."
 
     def lo_tomo_yo(self) -> str:
         with self._lock:
-            if self.estado in ("esperando", "jarvis"):
+            if self.estado in ("esperando", "aceptando", "jarvis"):
                 self.deadline, self.hasta = None, None
                 self._fijar("usuario")
                 return "Va, es toda tuya. No la contesto."
         return "No hay ninguna llamada pendiente."
 
-    def _leer_instantanea(self, limite: float = 5.0) -> list:
-        """Lee UI Automation en un hilo STA con límite para que un bloqueo de Windows no congele el diagnóstico."""
-        terminado = threading.Event()
-        resultado = {}
-
-        def leer():
-            comtypes = None
-            try:
-                import comtypes as _comtypes
-                comtypes = _comtypes
-                comtypes.CoInitializeEx(comtypes.COINIT_APARTMENTTHREADED)
-                resultado["lineas"] = list(self.ui.instantanea())
-            except Exception as e:
-                resultado["error"] = f"{type(e).__name__}: {e}"
-            finally:
-                if comtypes is not None:
-                    try:
-                        comtypes.CoUninitialize()
-                    except Exception:
-                        pass
-                terminado.set()
-
-        threading.Thread(target=leer, daemon=True).start()
-        if not terminado.wait(limite):
-            raise TimeoutError(f"WhatsApp/UI Automation no respondió en {limite:g} segundos")
-        if "error" in resultado:
-            raise RuntimeError(resultado["error"])
-        return resultado.get("lineas", [])
-
-    def diagnosticar(self, segundos: int = 15) -> str:
+    def diagnosticar(self, segundos: int = 30) -> str:
         """Observa la pantalla `segundos` segundos y reporta qué ventanas aparecen (para llamarte mientras tanto)."""
-        if getattr(self, "_observando", False):
+        if self._observando:
             return "Ya estoy observando. Llámame por WhatsApp desde otro teléfono."
         self._observando = True
         threading.Thread(target=self._observar, args=(segundos,), daemon=True).start()
@@ -346,7 +382,7 @@ class Gestor:
     def _observar(self, segundos: int):
         try:
             try:
-                base = self._leer_instantanea()
+                base = list(self.ui.instantanea())
             except Exception as e:
                 base = [f"No pude leer la pantalla: {type(e).__name__}: {e}"]
             vistas, nuevas = set(base), []
@@ -354,16 +390,19 @@ class Gestor:
             while self.reloj() < fin:
                 self.dormir(1)
                 try:
-                    actual = self._leer_instantanea()
-                except Exception as e:
-                    nuevas.append(f"La observación se detuvo: {type(e).__name__}: {e}")
-                    break
+                    actual = list(self.ui.instantanea())
+                except Exception as e:      # una lectura fallida no corta la observación
+                    linea = f"(una lectura falló: {type(e).__name__}: {e})"
+                    if linea not in vistas:
+                        vistas.add(linea)
+                        nuevas.append(linea)
+                    continue
                 for l in actual:
                     if l not in vistas:
                         vistas.add(l)
                         nuevas.append(l)
             partes = ["NUEVO durante la observación:"] + (nuevas or ["(nada: no apareció ninguna ventana nueva)"]) + \
-                     ["", "Ya estaba antes:"] + base
+                     ["", "Ya estaba antes:"] + base + ["", "Registro reciente (llamadas.log):"] + (registro.cola(15) or ["(vacío)"])
             informe = "\n".join(partes)
             ruta = None
             try:
@@ -373,10 +412,8 @@ class Gestor:
             except Exception:
                 ruta = None
             self._escribir("Jarvis", "Resultado de la observación (revisa que no haya nada privado antes de compartirlo):\n"
-                           + informe[:1800] + (f"\n\nGuardado en {ruta}" if ruta else ""))
+                           + informe[:3000] + (f"\n\nGuardado en {ruta}" if ruta else ""))
         except Exception as e:
-            # Do not leave the user with only “Ya estoy observando” if the worker
-            # itself encounters an unexpected error.
             self._escribir("Jarvis", f"Falló la observación de llamadas: {type(e).__name__}: {e}")
         finally:
             self._observando = False
@@ -401,13 +438,13 @@ class Gestor:
         habla_llamada = bool(_RE_LLAMADA.search(t))
         if _RE_DIAGNOSTICO.search(t):
             return self.diagnosticar()
-        if est in ("esperando", "jarvis", "usuario") or habla_llamada:
+        if est in ("esperando", "aceptando", "jarvis", "usuario") or habla_llamada:
             if _RE_YO.search(t):
                 return self.lo_tomo_yo()
             if _RE_RECHAZAR.search(t) and (est != "libre" or habla_llamada):
                 return self.rechazar_usuario()
             if _RE_ACEPTAR.search(t) and (est != "libre" or habla_llamada):
-                if est in ("jarvis", "usuario"):
+                if est in ("jarvis", "usuario", "aceptando"):
                     return "Ya hay una llamada en curso."
                 return self.aceptar_usuario()
         if _RE_ANUNCIO.search(t) and _RE_WHATSAPP.search(t):
@@ -462,8 +499,7 @@ def _hablar_en_llamada(texto: str):
 def _marcar_en_llamada(activo: bool):
     import voice
     if activo:
-        voice.en_llamada.set()
-        voice.conversando.clear()   # no seguir en modo conversación mientras hay una llamada
+        voice.en_llamada.set()      # solo calla la voz; NO saca a Jarvis del modo conversación (parecía un «descansa»)
     else:
         voice.en_llamada.clear()
 

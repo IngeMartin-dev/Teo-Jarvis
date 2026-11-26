@@ -3,7 +3,7 @@ import io, json, os, struct, sys, threading, time, types, unittest, wave
 from unittest import mock
 
 sys.path.insert(0, __import__("os").path.dirname(__import__("os").path.dirname(__import__("os").path.abspath(__file__))))
-import brain, config, energia, instalador, llamadas, notificaciones, tools, tools_pc, vision, voice  # noqa: E402
+import brain, config, energia, instalador, llamadas, notificaciones, registro, tools, tools_pc, ui_llamadas, vision, voice  # noqa: E402
 
 
 def esperar(cond, t=3.0):
@@ -37,6 +37,8 @@ class UIFalsa:
 
     def aceptar(self):
         self.llamadas.append("aceptar")
+        if getattr(self, "bloqueo", None) is not None:
+            self.bloqueo.wait(5)
         return self.aceptar_ok
 
     def rechazar(self):
@@ -74,7 +76,7 @@ ACTIVA = {"tipo": "activa", "nombre": "Mamá", "video": False, "hwnd": 1}
 
 class TestLlamadas(unittest.TestCase):
     def setUp(self):   # estas pruebas miden la cuenta de 15 s; el valor por defecto de config.py es 0 (contesta ya)
-        for nombre, valor in (("LLAMADA_ESPERA_SEG", 15), ("LLAMADA_ANUNCIAR", True)):
+        for nombre, valor in (("LLAMADA_ESPERA_SEG", 15), ("LLAMADA_ANUNCIAR", True), ("LLAMADA_ACEPTAR_POR_VISION", False)):
             p = mock.patch.object(config, nombre, valor, create=True)
             p.start()
             self.addCleanup(p.stop)
@@ -322,7 +324,7 @@ class TestLlamadas(unittest.TestCase):
                 ui.info = ENTRANTE                              # la llamada aparece durante la observación
         g.dormir = dormir
         out = g.manejar_texto("Jarvis, diagnostica la llamada")
-        self.assertIn("40 segundos", out)
+        self.assertIn("30 segundos", out)
         self.assertTrue(esperar(lambda: any("NUEVO durante" in t for _q, t in reg.chat)))
         informe = [t for _q, t in reg.chat if "NUEVO durante" in t][0]
         self.assertIn("«Llamada»", informe.split("Ya estaba antes")[0])   # apareció después, no estaba al inicio
@@ -339,6 +341,147 @@ class TestLlamadas(unittest.TestCase):
         self.assertEqual(len(errores), 1)
         self.assertIn("pywinauto", errores[0])
 
+    def _llamar_y_vencer(self, g, ui, reloj):
+        ui.info = ENTRANTE
+        g.tick()
+        self.assertTrue(esperar(lambda: g.deadline is not None))
+        reloj.avanzar(16)
+        g.tick()
+
+    def test_no_silencia_a_jarvis_hasta_que_contesta(self):
+        g, ui, reloj, reg = nuevo_gestor()
+        ui.bloqueo = threading.Event()                     # contestar tarda (UI Automation lenta)
+        self._llamar_y_vencer(g, ui, reloj)
+        self.assertTrue(esperar(lambda: "aceptar" in ui.llamadas))
+        self.assertEqual(g.estado, "aceptando")
+        self.assertNotIn(True, reg.en_llamada)             # mientras intenta contestar, Jarvis NO está mudo
+        ui.bloqueo.set()
+        self.assertTrue(esperar(lambda: g.estado == "jarvis"))
+        self.assertIn(True, reg.en_llamada)                # recién al contestar se silencia
+
+    def test_si_falla_contestar_nunca_queda_mudo(self):
+        g, ui, reloj, reg = nuevo_gestor()
+        ui.aceptar_ok = False
+        self._llamar_y_vencer(g, ui, reloj)
+        self.assertTrue(esperar(lambda: g.estado == "ignorando"))
+        self.assertNotIn(True, reg.en_llamada)
+
+    def test_si_contestar_lanza_error_no_queda_mudo(self):
+        g, ui, reloj, reg = nuevo_gestor()
+
+        def revienta():
+            raise TimeoutError("UI Automation no respondió")
+        ui.aceptar = revienta
+        self._llamar_y_vencer(g, ui, reloj)
+        self.assertTrue(esperar(lambda: g.estado == "ignorando"))
+        self.assertNotIn(True, reg.en_llamada)
+
+    def test_estado_atascado_lo_libera_el_temporizador(self):
+        g, ui, reloj, reg = nuevo_gestor()
+        ui.bloqueo = threading.Event()                     # contestar se queda colgado
+        self._llamar_y_vencer(g, ui, reloj)
+        self.assertTrue(esperar(lambda: g.estado == "aceptando"))
+        reloj.avanzar(500)
+        g.tick()
+        self.assertEqual(g.estado, "libre")
+        self.assertTrue(any("Reinicié el estado" in t for _q, t in reg.chat))
+        ui.bloqueo.set()                                   # cuando por fin responde, ya no habla ni silencia
+        time.sleep(0.2)
+        self.assertEqual(g.estado, "libre")
+        self.assertNotIn(True, reg.en_llamada)
+        self.assertFalse(any(k == "llamada" for k, _ in reg.hablado))
+
+    def test_error_de_lectura_no_cuenta_como_llamada_terminada(self):
+        g, ui, reloj, reg = nuevo_gestor()
+        ui.info = ENTRANTE
+        g.tick()
+        g.manejar_texto("contesta")
+        self.assertEqual(g.estado, "usuario")
+
+        def lento():
+            raise TimeoutError("UI Automation no respondió en 20 s")
+        ui.buscar_llamada = lento
+        for _ in range(6):
+            g.tick()
+        self.assertEqual(g.estado, "usuario")              # una lectura que falla NO significa que colgaron
+
+    def test_contestar_a_pedido_no_bloquea_el_candado(self):
+        g, ui, reloj, reg = nuevo_gestor()
+        ui.bloqueo = threading.Event()
+        ui.info = ENTRANTE
+        g.tick()
+        hilo = threading.Thread(target=g.manejar_texto, args=("contesta",), daemon=True)
+        hilo.start()
+        self.assertTrue(esperar(lambda: "aceptar" in ui.llamadas))
+        self.assertTrue(g._lock.acquire(timeout=1))        # mientras UI Automation tarda, el vigilante puede seguir
+        g._lock.release()
+        ui.bloqueo.set()
+        hilo.join(3)
+
+    def test_yo_contesto_mientras_aceptaba(self):
+        g, ui, reloj, reg = nuevo_gestor()
+        ui.bloqueo = threading.Event()
+        self._llamar_y_vencer(g, ui, reloj)
+        self.assertTrue(esperar(lambda: g.estado == "aceptando"))
+        self.assertIn("toda tuya", g.manejar_texto("yo me encargo"))
+        ui.bloqueo.set()
+        time.sleep(0.2)
+        self.assertEqual(g.estado, "usuario")
+        self.assertFalse(any(k == "llamada" for k, _ in reg.hablado))   # no dice el saludo encima de ti
+
+    def test_vision_contesta_cuando_uia_falla(self):
+        g, ui, reloj, reg = nuevo_gestor()
+        ui.aceptar_ok = False
+        with mock.patch.object(config, "LLAMADA_ACEPTAR_POR_VISION", True), \
+                mock.patch.object(tools_pc, "_captura_principal", return_value="img"), \
+                mock.patch.object(vision, "preguntar", return_value="VOZ"), \
+                mock.patch.object(tools_pc, "clic_visual", return_value="Hice clic en lo que parece «Accept Call» (10, 20).") as cv:
+            self._llamar_y_vencer(g, ui, reloj)
+            self.assertTrue(esperar(lambda: g.estado == "jarvis"))
+            cv.assert_called_once()
+        self.assertTrue(esperar(lambda: any(k == "llamada" for k, _ in reg.hablado)))
+
+    def test_vision_no_contesta_videollamadas_ni_si_no_hay_llamada(self):
+        for respuesta in ("VIDEO", "NADA", "no sé"):
+            g, ui, reloj, reg = nuevo_gestor()
+            ui.aceptar_ok = False
+            with mock.patch.object(config, "LLAMADA_ACEPTAR_POR_VISION", True), \
+                    mock.patch.object(tools_pc, "_captura_principal", return_value="img"), \
+                    mock.patch.object(vision, "preguntar", return_value=respuesta), \
+                    mock.patch.object(tools_pc, "clic_visual") as cv:
+                self._llamar_y_vencer(g, ui, reloj)
+                self.assertTrue(esperar(lambda: g.estado == "ignorando"), respuesta)
+                cv.assert_not_called()
+
+    def test_vision_que_revienta_no_rompe_nada(self):
+        g, ui, reloj, reg = nuevo_gestor()
+        ui.aceptar_ok = False
+        with mock.patch.object(config, "LLAMADA_ACEPTAR_POR_VISION", True), \
+                mock.patch.object(tools_pc, "_captura_principal", side_effect=OSError("sin pantalla")):
+            self._llamar_y_vencer(g, ui, reloj)
+            self.assertTrue(esperar(lambda: g.estado == "ignorando"))
+
+    def test_avisar_de_la_llamada_con_lectura_fallida(self):
+        g, ui, reloj, reg = nuevo_gestor()
+
+        def lento():
+            raise TimeoutError("UI Automation no respondió en 20 s")
+        ui.buscar_llamada = lento
+        out = g.manejar_texto("Jarvis, me están llamando por WhatsApp")
+        self.assertIn("contesto yo", out)                  # no revienta: sigue esperando la llamada
+        self.assertEqual(g.estado, "esperando")
+
+    def test_conversacion_continua_no_se_apaga_con_la_llamada(self):
+        voice.conversando.set()
+        try:
+            llamadas._marcar_en_llamada(True)
+            self.assertTrue(voice.en_llamada.is_set())
+            self.assertTrue(voice.conversando.is_set())    # antes se apagaba y parecía un «descansa»
+            llamadas._marcar_en_llamada(False)
+            self.assertFalse(voice.en_llamada.is_set())
+        finally:
+            voice.conversando.clear(); voice.en_llamada.clear()
+
     def test_cuelga_durante_llamada_de_jarvis(self):
         g, ui, reloj, reg = nuevo_gestor()
         ui.info = ENTRANTE
@@ -351,6 +494,76 @@ class TestLlamadas(unittest.TestCase):
         self.assertEqual(g.manejar_texto("jarvis cuelga"), "Voy a colgar la llamada.")
         g.tick()
         self.assertTrue(esperar(lambda: "colgar" in ui.llamadas))
+
+
+class TestUIALimites(unittest.TestCase):
+    """El hilo de UI Automation: límites de tiempo y tareas viejas (no necesita Windows)."""
+
+    def test_devuelve_resultado_y_propaga_errores(self):
+        self.assertEqual(ui_llamadas.en_hilo(lambda: 42, 2), 42)
+        with self.assertRaises(ValueError):
+            ui_llamadas.en_hilo(lambda: (_ for _ in ()).throw(ValueError("x")), 2)
+
+    def test_timeout_no_bloquea_y_se_recupera(self):
+        ui_llamadas._hilo = None
+        t0 = time.time()
+        with self.assertRaises(TimeoutError):
+            ui_llamadas.en_hilo(lambda: time.sleep(1.0), 0.2)
+        self.assertLess(time.time() - t0, 0.8)             # se rinde a tiempo, no espera a que termine
+        time.sleep(1.0)                                    # la tarea lenta termina sola
+        self.assertEqual(ui_llamadas.en_hilo(lambda: "ok", 2), "ok")
+
+    def test_tarea_cancelada_no_se_ejecuta_tarde(self):
+        ui_llamadas._hilo = None
+        ejecutadas = []
+        with self.assertRaises(TimeoutError):
+            ui_llamadas.en_hilo(lambda: time.sleep(0.6), 0.1)      # ocupa el hilo
+        with self.assertRaises(TimeoutError):
+            ui_llamadas.en_hilo(lambda: ejecutadas.append("clic viejo"), 0.1)   # espera en cola y se rinde
+        time.sleep(1.0)
+        self.assertEqual(ejecutadas, [])                   # no hace un clic tardío cuando el hilo se libera
+
+    def test_hilo_atascado_se_reemplaza(self):
+        ui_llamadas._hilo = None
+        with mock.patch.object(ui_llamadas, "_ABANDONO", 0.1):
+            with self.assertRaises(TimeoutError):
+                ui_llamadas.en_hilo(lambda: time.sleep(1.5), 0.2)
+            time.sleep(0.3)
+            t0 = time.time()
+            self.assertEqual(ui_llamadas.en_hilo(lambda: "nuevo hilo", 1), "nuevo hilo")
+            self.assertLess(time.time() - t0, 0.8)         # no esperó a que el hilo viejo terminara
+
+    def test_sin_ventanas_candidatas_no_lee_nada(self):
+        leidas = []
+        with mock.patch.object(ui_llamadas, "_candidatas", return_value=[]), \
+                mock.patch.object(ui_llamadas, "en_hilo", side_effect=lambda *a, **k: leidas.append(1)):
+            self.assertIsNone(ui_llamadas.buscar_llamada())
+        self.assertEqual(leidas, [])
+
+    def test_lectura_en_cache_no_vuelve_a_leer(self):
+        v = {"hwnd": 7, "titulo": "WhatsApp", "exe": "whatsapp.root.exe", "w": 400, "h": 300}
+        info = {"tipo": "entrante", "hwnd": 7, "nombre": "Mami", "video": False}
+        ui_llamadas._cache.clear()
+        ui_llamadas._cache[7] = {"t": time.time(), "info": info}
+        with mock.patch.object(ui_llamadas, "_candidatas", return_value=[v]), \
+                mock.patch.object(ui_llamadas, "en_hilo", side_effect=AssertionError("no debe releer")):
+            self.assertEqual(ui_llamadas.buscar_llamada(), info)
+        ui_llamadas._cache.clear()
+
+
+class TestRegistro(unittest.TestCase):
+    def test_escribe_y_lee_la_cola(self):
+        registro.escribir("prueba uno\ncon salto")
+        registro.escribir("prueba dos")
+        ultimas = registro.cola(2)
+        self.assertEqual(len(ultimas), 2)
+        self.assertIn("prueba uno | con salto", ultimas[0])
+        self.assertTrue(ultimas[1].endswith("prueba dos"))
+
+    def test_no_rompe_si_no_puede_escribir(self):
+        with mock.patch.object(registro, "ruta", side_effect=OSError("sin disco")):
+            registro.escribir("no debe lanzar")
+            self.assertEqual(registro.cola(), [])
 
 
 class TestNotificaciones(unittest.TestCase):
