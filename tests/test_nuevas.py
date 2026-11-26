@@ -70,6 +70,11 @@ ACTIVA = {"tipo": "activa", "nombre": "Mamá", "video": False, "hwnd": 1}
 
 
 class TestLlamadas(unittest.TestCase):
+    def setUp(self):   # estas pruebas miden la cuenta de 15 s; el valor por defecto de config.py es 0 (contesta ya)
+        p = mock.patch.object(config, "LLAMADA_ESPERA_SEG", 15)
+        p.start()
+        self.addCleanup(p.stop)
+
     def test_usuario_contesta_antes_de_15s(self):
         g, ui, reloj, reg = nuevo_gestor()
         ui.info = ENTRANTE
