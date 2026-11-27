@@ -110,6 +110,7 @@ LLAMADA_ACEPTAR_POR_VISION = True   # si UI Automation no logra pulsar «aceptar
 LLAMADA_BTN_ACEPTAR = r"\b(aceptar|Accept Call|contestar|responder|answer|atender|accept|Accept)\b"
 # Título de la ventana de una llamada EN CURSO (esa ventana no expone botones: se reconoce por su título).
 LLAMADA_TITULO_ACTIVA = r"voice call|video call|llamada de voz|videollamada|^\s*llamada\b|^\s*call\b"
+LLAMADA_GANANCIA = 2.0            # sube el volumen de la voz de Jarvis hacia el cable (1 = sin cambio; máx. 6). Si suena saturada, bájala
 LLAMADA_RETRASO_SALUDO = 2.5       # segundos tras contestar antes de hablar (el audio de WhatsApp tarda en establecerse)
 LLAMADA_SALUDO_REPETIR = 2         # veces que dice el saludo (por si la primera se pierde al abrirse el audio)
 LLAMADA_COLGAR_POR_VISION = True   # si no halla el botón de colgar, lo busca en la pantalla

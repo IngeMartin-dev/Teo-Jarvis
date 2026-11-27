@@ -80,7 +80,7 @@ def _dispositivo_salida(parte: str):
     return d[0][1] if d else None
 
 
-def _subir_volumen_propio() -> str:
+def _subir_volumen_propio_directo() -> str:
     """Pone en 100 % y sin silencio TODAS las sesiones de audio de este programa, en todos los dispositivos de salida.
     El mezclador de Windows guarda un volumen por aplicación (a veces queda en 1 y no deja subirlo a mano). Necesita
     pycaw (opcional); si no está, solo lo anota. Nunca lanza errores."""
@@ -114,6 +114,43 @@ def _subir_volumen_propio() -> str:
         return "pycaw no está instalado (pip install pycaw); no puedo corregir el volumen"
     except Exception as e:
         return f"no pude corregir el volumen: {type(e).__name__}: {e}"
+
+
+def _subir_volumen_propio() -> str:
+    """Como _subir_volumen_propio_directo, pero en un hilo aparte con COM propio y límite de 4 s: si Windows se atasca
+    con el audio, Jarvis no se congela."""
+    res = {}
+
+    def tarea():
+        try:
+            import comtypes
+            comtypes.CoInitialize()
+            try:
+                res["v"] = _subir_volumen_propio_directo()
+            finally:
+                import gc
+                gc.collect()               # suelta los objetos COM antes de cerrar COM en este mismo hilo
+                comtypes.CoUninitialize()
+        except Exception as e:
+            res["v"] = f"no pude corregir el volumen: {type(e).__name__}: {e}"
+
+    h = threading.Thread(target=tarea, daemon=True, name="volumen-jarvis")
+    h.start()
+    h.join(4)
+    return res.get("v", "el ajuste de volumen tardó demasiado; lo dejo así")
+
+
+def _con_ganancia(datos: bytes, ganancia: float) -> bytes:
+    """Sube el volumen de audio de 16 bits (recortando para no distorsionar). ganancia 1 = igual."""
+    if not ganancia or abs(ganancia - 1.0) < 0.01:
+        return datos
+    import array
+    a = array.array("h")
+    a.frombytes(datos[: len(datos) - len(datos) % 2])
+    g = max(0.1, min(float(ganancia), 6.0))
+    for i, v in enumerate(a):
+        a[i] = max(-32768, min(32767, int(v * g)))
+    return a.tobytes()
 
 
 def _log(msg: str):
@@ -166,12 +203,13 @@ def hablar_en_llamada(texto: str) -> str:
             ruta = Path(tempfile.gettempdir()) / "jarvis_llamada.wav"
             datos, canales, tasa = _sintetizar_wav(texto, ruta)
             _log(f"audio generado: {len(datos)} bytes, {canales} canal(es), {tasa} Hz")
+            datos = _con_ganancia(datos, getattr(config, "LLAMADA_GANANCIA", 2.0))
             silencio = b"\x00" * (int(tasa * 0.6) * canales * 2)   # el cable «despierta» y se come el principio
             datos = silencio + datos + silencio
             ultimo = ""
             for _o, i, nombre, api in candidatos:
                 try:
-                    with sd.RawOutputStream(samplerate=tasa, channels=canales, dtype="int16", device=i) as salida:
+                    with sd.RawOutputStream(samplerate=tasa, channels=canales, dtype="int16", device=i, latency="high") as salida:
                         _log("volumen de Jarvis: " + _subir_volumen_propio())   # la sesión de audio existe ya con el flujo abierto
                         salida.write(datos)
                     _log(f"reproducido por [{i}] {nombre} ({api})")
