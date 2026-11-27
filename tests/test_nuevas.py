@@ -619,7 +619,7 @@ class TestConversacionLlamada(unittest.TestCase):
     def test_dos_silencios_terminan(self):
         r, dichas, avisos, _ = self._conversar([], [])
         self.assertTrue(r["ok"])
-        self.assertEqual(dichas, [])                                     # en silencio no pregunta nada
+        self.assertEqual(dichas, ["¿Quiere dejarle algún mensaje a Martín?"])   # en silencio pregunta por un «mensaje»
         self.assertEqual(avisos, [])                                     # sin conversación: sin aviso
 
     def test_sin_recado_avisa_quien_llamo(self):
@@ -628,9 +628,9 @@ class TestConversacionLlamada(unittest.TestCase):
         self.assertEqual(avisos, ["Te llamó Ana. No dejó ningún mensaje."])
         self.assertEqual(dichas, ["Cuatro."])
 
-    def test_el_modelo_no_ofrece_dejar_recado(self):
-        self.assertNotIn("dejarle un mensaje", conversacion_llamada._SISTEMA.split("NO le preguntes")[0])
-        self.assertIn("NO le preguntes si quiere dejar un mensaje", conversacion_llamada._SISTEMA)
+    def test_el_modelo_dice_mensaje_y_no_recado(self):
+        self.assertIn("nunca «recado»", conversacion_llamada._SISTEMA)
+        self.assertIn("dejarle algún mensaje", conversacion_llamada._SISTEMA)
 
     def test_modelo_caido_no_pierde_lo_que_dijo(self):
         r, dichas, avisos, _ = self._conversar([b"avise que llego tarde"], [])   # charlar lanza IndexError

@@ -14,8 +14,9 @@ _SISTEMA = (
     "{quien} porque {usuario} no pudo contestar. Hablas en español, con frases cortas (máximo dos o tres), amable y natural, "
     "porque tus respuestas se dicen en voz alta por teléfono. Eres una IA: nunca te hagas pasar por {usuario}. "
     "Conversa con la persona de lo que quiera y responde TODAS sus preguntas, sean del tema que sean (cultura general, "
-    "consejos, chistes, cálculos, charla normal), como lo haría un buen asistente. NO le preguntes si quiere dejar un mensaje ni se "
-    "lo sugieras: solo si ella dice que quiere dejarle un mensaje o recado a {usuario}, anótalo y confírmalo en una frase. "
+    "consejos, chistes, cálculos, charla normal), como lo haría un buen asistente. Cuando venga al caso (por ejemplo al terminar de responder algo o si la conversación se "
+    "acaba), pregúntale con naturalidad si quiere dejarle algún mensaje a {usuario}. Usa SIEMPRE la palabra «mensaje», nunca "
+    "«recado». Si deja un mensaje, anótalo y confírmalo en una frase. "
     "Fecha y hora actuales: {ahora}. "
     "Reglas: no inventes información sobre {usuario} (dónde está, qué hace, su agenda, cuándo vuelve): si te preguntan, di que no lo "
     "sabes. No des datos privados de {usuario} (claves, direcciones, números, cuentas). No prometas ni aceptes nada en su nombre "
@@ -125,7 +126,8 @@ def conversar(info, hablar, activo, escribir=None, avisar=None, oyente=None, cha
                 if silencios >= 2:
                     registro.escribir("conversación: silencio; termina")
                     break
-                continue    # en silencio no se le dice nada: se sigue esperando
+                decir(f"¿Quiere dejarle algún mensaje a {usuario}?")
+                continue
             try:
                 texto = a_texto(pcm)
             except Exception as e:   # noqa: BLE001
@@ -155,7 +157,7 @@ def conversar(info, hablar, activo, escribir=None, avisar=None, oyente=None, cha
             if r["recado"]:
                 recados.append(r["recado"])
                 registro.escribir("conversación: anotó un recado")
-                escribir("Jarvis", f"Recado de {quien} para ti: {r['recado']}")
+                escribir("Jarvis", f"Mensaje de {quien} para ti: {r['recado']}")
             mensajes.append({"role": "assistant", "content": r["decir"] or "(se despidió)"})
             if not activo():
                 break
