@@ -613,15 +613,24 @@ class TestConversacionLlamada(unittest.TestCase):
              '{"decir": "Anotado: que la llame mañana.", "recado": "Que Ana la llame mañana", "terminar": false}',
              '{"decir": "", "recado": "", "terminar": true}'])
         self.assertEqual(r["recados"], ["Que Ana la llame mañana"])
-        self.assertTrue(any("Recado de Ana" in a for a in avisos))     # recado al celular al instante
-        self.assertTrue(any("Resumen" in a or "Llamada de Ana" in a for a in avisos))
+        self.assertEqual(avisos, ["Te llamó Ana y dejó este mensaje: Que Ana la llame mañana"])   # un solo aviso: quién y qué mensaje
         self.assertEqual(dichas, ["Claro, dígame.", "Anotado: que la llame mañana."])
 
     def test_dos_silencios_terminan(self):
         r, dichas, avisos, _ = self._conversar([], [])
         self.assertTrue(r["ok"])
-        self.assertEqual(len(dichas), 1)                                 # «¿Sigue ahí?» una vez
-        self.assertEqual(avisos, [])                                     # sin conversación: sin resumen
+        self.assertEqual(dichas, [])                                     # en silencio no pregunta nada
+        self.assertEqual(avisos, [])                                     # sin conversación: sin aviso
+
+    def test_sin_recado_avisa_quien_llamo(self):
+        r, dichas, avisos, _ = self._conversar([b"cuanto es dos mas dos", b"adios"],
+            ['{"decir": "Cuatro.", "recado": "", "terminar": false}', '{"decir": "", "recado": "", "terminar": true}'])
+        self.assertEqual(avisos, ["Te llamó Ana. No dejó ningún mensaje."])
+        self.assertEqual(dichas, ["Cuatro."])
+
+    def test_el_modelo_no_ofrece_dejar_recado(self):
+        self.assertNotIn("dejarle un mensaje", conversacion_llamada._SISTEMA.split("NO le preguntes")[0])
+        self.assertIn("NO le preguntes si quiere dejar un mensaje", conversacion_llamada._SISTEMA)
 
     def test_modelo_caido_no_pierde_lo_que_dijo(self):
         r, dichas, avisos, _ = self._conversar([b"avise que llego tarde"], [])   # charlar lanza IndexError
