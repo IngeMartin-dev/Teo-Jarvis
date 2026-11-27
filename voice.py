@@ -80,6 +80,42 @@ def _dispositivo_salida(parte: str):
     return d[0][1] if d else None
 
 
+def _subir_volumen_propio() -> str:
+    """Pone en 100 % y sin silencio TODAS las sesiones de audio de este programa, en todos los dispositivos de salida.
+    El mezclador de Windows guarda un volumen por aplicación (a veces queda en 1 y no deja subirlo a mano). Necesita
+    pycaw (opcional); si no está, solo lo anota. Nunca lanza errores."""
+    try:
+        import os
+        from comtypes import CLSCTX_ALL
+        from ctypes import POINTER, cast
+        from pycaw.pycaw import AudioUtilities, IAudioSessionManager2, IAudioSessionControl2, ISimpleAudioVolume
+        pid, cambios = os.getpid(), []
+        enumerador = AudioUtilities.GetDeviceEnumerator()
+        dispositivos = enumerador.EnumAudioEndpoints(0, 1)   # 0 = salidas, 1 = activos
+        for i in range(dispositivos.GetCount()):
+            try:
+                dev = dispositivos.Item(i)
+                gestor = cast(dev.Activate(IAudioSessionManager2._iid_, CLSCTX_ALL, None), POINTER(IAudioSessionManager2))
+                sesiones = gestor.GetSessionEnumerator()
+                for j in range(sesiones.GetCount()):
+                    ctl = sesiones.GetSession(j)
+                    if ctl.QueryInterface(IAudioSessionControl2).GetProcessId() != pid:
+                        continue
+                    vol = ctl.QueryInterface(ISimpleAudioVolume)
+                    antes, mudo = vol.GetMasterVolume(), vol.GetMute()
+                    if antes < 0.99 or mudo:
+                        vol.SetMasterVolume(1.0, None)
+                        vol.SetMute(0, None)
+                        cambios.append(f"dispositivo {i}: volumen {antes:.2f}{' (silenciado)' if mudo else ''} -> 1.00")
+            except Exception as e:
+                _log(f"volumen: dispositivo {i} no se pudo revisar ({type(e).__name__}: {e})")
+        return "; ".join(cambios) or "sin cambios (ya estaba al máximo)"
+    except ImportError:
+        return "pycaw no está instalado (pip install pycaw); no puedo corregir el volumen"
+    except Exception as e:
+        return f"no pude corregir el volumen: {type(e).__name__}: {e}"
+
+
 def _log(msg: str):
     try:
         import registro
@@ -136,6 +172,7 @@ def hablar_en_llamada(texto: str) -> str:
             for _o, i, nombre, api in candidatos:
                 try:
                     with sd.RawOutputStream(samplerate=tasa, channels=canales, dtype="int16", device=i) as salida:
+                        _log("volumen de Jarvis: " + _subir_volumen_propio())   # la sesión de audio existe ya con el flujo abierto
                         salida.write(datos)
                     _log(f"reproducido por [{i}] {nombre} ({api})")
                     time.sleep(0.3)

@@ -14,3 +14,4 @@ pyautogui
 pywinauto
 pyperclip
 sounddevice
+pycaw; sys_platform == 'win32'
