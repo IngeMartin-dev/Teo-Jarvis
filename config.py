@@ -116,7 +116,7 @@ LLAMADA_SALUDO_REPETIR = 2         # veces que dice el saludo (por si la primera
 LLAMADA_COLGAR_POR_VISION = True   # si no halla el botón de colgar, lo busca en la pantalla
 # Conversación: Jarvis oye a quien llama (captura lo que suena por tus parlantes), le responde y anota recados que te manda al celular.
 LLAMADA_CONVERSAR = True
-LLAMADA_AUDIO_ENTRADA = ""            # parte del nombre de la salida que usa WhatsApp para sonar (vacío = la predeterminada de Windows)
+LLAMADA_AUDIO_ENTRADA = "audifoneishons de martinchito"            # parte del nombre de la salida que usa WhatsApp para sonar (vacío = la predeterminada de Windows)
 LLAMADA_CONVERSACION_MAX_SEG = 240    # tiempo máximo de la conversación antes de despedirse y colgar
 LLAMADA_CONVERSACION_TURNOS = 12      # máximo de intercambios
 LLAMADA_ESPERA_VOZ = 10               # segundos esperando a que quien llama hable (tras 2 silencios se despide)
