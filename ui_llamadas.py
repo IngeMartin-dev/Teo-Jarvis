@@ -18,7 +18,7 @@ from pathlib import Path
 import config, registro
 
 _GENERICOS = re.compile(r"whatsapp|llamada|call|voz|voice|video|entrante|incoming|llamando|calling|ringing|timbrando|"
-                        r"aceptar|rechazar|accept|decline", re.I)
+                        r"aceptar|rechazar|accept|decline|encrypt|cifrad|cámara|camera|micr[oó]fono|microphone|audio|settings|chat", re.I)
 _TIPOS_BOTON = ("Button", "Hyperlink", "Custom", "Group")   # WebView2 no siempre expone los botones como «Button»
 _TTL = 6.0          # segundos que vale una lectura en caché
 _ABANDONO = 45.0    # si una tarea de UI Automation lleva tanto atascada, se descarta el hilo y se crea otro
@@ -199,6 +199,7 @@ def centro_llamada():
 
 def _nombre_llamante(textos: list) -> str:
     for t in textos:
+        t = re.sub(r"[\ue000-\uf8ff]", "", t).strip()   # iconos de la fuente de WhatsApp
         if 1 < len(t) <= 60 and not _GENERICOS.search(t):
             return t
     return ""
