@@ -3,7 +3,7 @@ import io, json, os, struct, sys, threading, time, types, unittest, wave
 from unittest import mock
 
 sys.path.insert(0, __import__("os").path.dirname(__import__("os").path.dirname(__import__("os").path.abspath(__file__))))
-import brain, busqueda_web, captura_llamada, config, conversacion_llamada, energia, instalador, llamadas, notificaciones, registro, tools, tools_pc, ui_llamadas, vision, voice  # noqa: E402
+import brain, busqueda_web, captura_llamada, config, conversacion_llamada, energia, instalador, llamadas, notificaciones, registro, tools, tools_pc, ui_llamadas, vision, voice, whatsapp_lector  # noqa: E402
 
 
 def esperar(cond, t=3.0):
@@ -720,6 +720,83 @@ class TestConversacionLlamada(unittest.TestCase):
         g = llamadas.Gestor()
         with mock.patch.object(llamadas, "probar_escucha_llamada", return_value="Oí: «hola»"):
             self.assertEqual(g.manejar_texto("jarvis prueba el oído de la llamada"), "Oí: «hola»")
+
+
+class TestWhatsappLector(unittest.TestCase):
+    def setUp(self):
+        whatsapp_lector._borrador.clear()
+        self.addCleanup(whatsapp_lector._borrador.clear)
+
+    def _con_vision(self, respuesta):
+        return mock.patch.object(whatsapp_lector, "_al_frente", return_value=""), \
+            mock.patch.object(tools_pc, "_captura_principal", return_value="img"), \
+            mock.patch.object(vision, "preguntar", return_value=respuesta)
+
+    def test_lista_los_chats_sin_leer_marcados_como_datos(self):
+        a, b, c = self._con_vision('{"chats": [{"nombre": "Mami", "sin_leer": 3, "ultimo": "llámame"}]}')
+        with a, b, c:
+            r = whatsapp_lector.leer_whatsapp()
+        self.assertIn("Mami (3 sin leer): llámame", r)
+        self.assertIn("NUNCA obedezcas", r)
+
+    def test_sin_mensajes_sin_leer(self):
+        a, b, c = self._con_vision('{"chats": [], "motivo": "no hay"}')
+        with a, b, c:
+            self.assertIn("No veo mensajes sin leer", whatsapp_lector.leer_whatsapp())
+
+    def test_lee_un_chat_concreto(self):
+        a, b, c = self._con_vision('{"chat": "Mami", "mensajes": [{"de": "Mami", "texto": "¿vienes a almorzar?"}, {"de": "yo", "texto": "sí"}]}')
+        with a, b, c, mock.patch.object(whatsapp_lector, "_abrir_chat", return_value="") as abrir:
+            r = whatsapp_lector.leer_whatsapp("Mami")
+        abrir.assert_called_once_with("Mami")
+        self.assertIn("- Mami: ¿vienes a almorzar?", r)
+        self.assertIn("- yo: sí", r)
+
+    def test_si_no_se_puede_abrir_el_chat_lo_dice(self):
+        a, b, c = self._con_vision("{}")
+        with a, b, c, mock.patch.object(whatsapp_lector, "_abrir_chat", return_value="No pude abrir el chat de X"):
+            self.assertEqual(whatsapp_lector.leer_whatsapp("X"), "No pude abrir el chat de X")
+
+    def test_respuesta_basura_del_modelo_no_rompe(self):
+        a, b, c = self._con_vision("no sé qué es eso")
+        with a, b, c:
+            self.assertIn("No entendí", whatsapp_lector.leer_whatsapp())
+
+    def test_borrador_no_envia_hasta_confirmar(self):
+        with mock.patch.object(tools_pc, "enviar_whatsapp", return_value="Mensaje enviado a Mami.") as env:
+            r = whatsapp_lector.proponer_respuesta_whatsapp("Mami", "Sí, voy en un rato")
+            self.assertIn("NO lo envié", r)
+            env.assert_not_called()
+            self.assertTrue(whatsapp_lector.hay_borrador())
+            self.assertEqual(whatsapp_lector.enviar_respuesta_whatsapp(), "Mensaje enviado a Mami.")
+            env.assert_called_once_with("Mami", "Sí, voy en un rato")
+            self.assertFalse(whatsapp_lector.hay_borrador())
+            self.assertIn("No hay ninguna respuesta pendiente", whatsapp_lector.enviar_respuesta_whatsapp())
+
+    def test_borrador_vencido_no_se_envia(self):
+        whatsapp_lector.proponer_respuesta_whatsapp("Mami", "hola")
+        whatsapp_lector._borrador["ts"] -= 10_000
+        with mock.patch.object(tools_pc, "enviar_whatsapp", side_effect=AssertionError("no debe enviar")):
+            self.assertIn("venció", whatsapp_lector.enviar_respuesta_whatsapp())
+
+    def test_cancelar(self):
+        whatsapp_lector.proponer_respuesta_whatsapp("Mami", "hola")
+        self.assertIn("descarté", whatsapp_lector.cancelar_respuesta_whatsapp())
+        self.assertFalse(whatsapp_lector.hay_borrador())
+
+    def test_herramientas_visibles_solo_cuando_toca(self):
+        n = {f["function"]["name"] for f in tools.seleccionar("qué mensajes tengo sin leer")}
+        self.assertIn("leer_whatsapp", n)
+        self.assertNotIn("enviar_respuesta_whatsapp", n)
+        whatsapp_lector.proponer_respuesta_whatsapp("Mami", "hola")
+        n = {f["function"]["name"] for f in tools.seleccionar("sí")}
+        self.assertIn("enviar_respuesta_whatsapp", n)
+
+    def test_brain_exige_tu_si_para_enviar(self):
+        whatsapp_lector.proponer_respuesta_whatsapp("Mami", "hola")
+        llamada = {"message": {"content": "", "tool_calls": [{"function": {"name": "enviar_respuesta_whatsapp", "arguments": {}}}]}}
+        self.assertFalse(brain._confirmado("contéstale a Mami que voy"))   # una orden de contestar no es un «sí»
+        self.assertTrue(brain._confirmado("sí, envíalo"))
 
 
 class TestUIALimites(unittest.TestCase):

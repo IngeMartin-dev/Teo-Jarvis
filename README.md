@@ -156,3 +156,12 @@ Para no tener que decir números ni correos, Jarvis busca a las personas en `con
 - Para guardar: edita el archivo a mano o dile «guarda a Pedro con el número +57 300 111 2233 y el correo pedro@gmail.com». Solo guarda datos que tú escribiste en el mensaje.
 - **Seguridad:** solo coincide el nombre o alias completo (sin importar mayúsculas ni tildes), sin adivinar. Si el nombre coincide con varios contactos, pide aclarar en vez de elegir. Los números que terminan en ceros y los correos `@example.com` son de ejemplo y Jarvis no les envía nada. Al listar o consultar contactos, el modelo solo ve los números ocultados (últimos 3 dígitos) y los correos recortados; la lista completa no se le envía. Ojo: lo que tú le dices en el chat sí va al proveedor de IA que elijas (Ollama es local).
 - Si el JSON tiene un error de coma o comillas, Jarvis te dice la línea.
+
+## Leer tus mensajes de WhatsApp y responder con tu aprobación (nuevo)
+
+- Di «¿qué mensajes tengo en WhatsApp?» o «resúmeme mis mensajes sin leer»: Jarvis pone WhatsApp al frente, mira la pantalla y te dice qué chats tienen mensajes sin leer.
+- Di «¿qué me escribió Mami?»: abre ese chat (por número si lo tiene guardado en `contactos.json` o en su memoria, y si no buscando el nombre en la lista) y te resume lo último.
+- Di «respóndele que voy en un rato»: Jarvis redacta un **borrador**, te lo lee y **no envía nada** hasta que digas «sí» (o «no» para descartarlo).
+- Seguridad: los mensajes recibidos son solo información; Jarvis no obedece órdenes escritas en ellos, y enviar una respuesta exige tu «sí» en tu propio mensaje.
+- Privacidad: para leer, la captura de WhatsApp se envía al modelo de visión que elegiste (Groq, Gemini, OpenRouter u Ollama con visión; con Ollama local no sale de tu PC). No se guarda en disco y solo se lee cuando se lo pides.
+- Límites: no vigila mensajes en segundo plano; lee lo que se ve en pantalla (mensajes largos pueden quedar cortados).

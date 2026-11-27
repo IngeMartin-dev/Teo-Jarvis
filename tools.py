@@ -446,6 +446,11 @@ import energia
 TOOLS_SPEC += energia.SPEC
 REGISTRY.update(energia.REGISTRY)
 
+# ---------- Leer mensajes de WhatsApp y responder con aprobación ----------
+import whatsapp_lector
+TOOLS_SPEC += whatsapp_lector.SPEC
+REGISTRY.update(whatsapp_lector.REGISTRY)
+
 # ---------- Llamadas de WhatsApp y aviso al celular ----------
 import llamadas
 TOOLS_SPEC += llamadas.SPEC
@@ -483,7 +488,10 @@ _GRUPOS = [
       "rechaza", "celular", "aviso"),
      {"contestar_llamada", "rechazar_llamada", "diagnosticar_llamada", "probar_voz_llamada", "probar_escucha_llamada", "probar_aviso_celular"}),
     (("whatsapp", "wasap", "mensaje a", "mándale", "mandale", "escríbele", "escribele", "dile a"),
-     {"enviar_whatsapp", "confirmar_whatsapp", "cancelar_whatsapp"}),
+     {"enviar_whatsapp", "confirmar_whatsapp", "cancelar_whatsapp", "leer_whatsapp", "proponer_respuesta_whatsapp"}),
+    (("mensajes", "sin leer", "me escribió", "me escribio", "me escribieron", "qué me dijo", "que me dijo", "chats",
+      "resúmeme", "resumeme", "responde a", "respóndele", "respondele", "contéstale", "contestale"),
+     {"leer_whatsapp", "proponer_respuesta_whatsapp"}),
     (("mouse", "ratón", "raton", "clic", "click", "haz clic", "teclado", "escribe", "teclea", "tecla", "scroll",
       "desplaza", "botón", "boton", "pulsa", "presiona", "controla", "pestaña", "ventana", "cursor",
       "icono", "ícono", "dale", "toca", "donde dice", "ve a "),
@@ -537,6 +545,8 @@ def seleccionar(texto: str, contexto: str = "") -> list:
         nombres |= {"enviar_whatsapp", "confirmar_whatsapp", "cancelar_whatsapp", "enviar_correo"}
     if tools_google._pendiente:   # hay un correo esperando confirmación
         nombres |= {"confirmar_envio", "cancelar_envio", "enviar_correo"}
+    if whatsapp_lector.hay_borrador():   # hay una respuesta de WhatsApp esperando tu aprobación
+        nombres |= {"enviar_respuesta_whatsapp", "cancelar_respuesta_whatsapp", "proponer_respuesta_whatsapp"}
     if tools_pc._wa:              # hay un WhatsApp esperando confirmación
         nombres |= {"confirmar_whatsapp", "cancelar_whatsapp"}
     if energia.hay_pendiente() or energia._programada:   # hay una acción de energía esperando o en cuenta atrás
