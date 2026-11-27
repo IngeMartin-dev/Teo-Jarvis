@@ -3,7 +3,7 @@ import io, json, os, struct, sys, threading, time, types, unittest, wave
 from unittest import mock
 
 sys.path.insert(0, __import__("os").path.dirname(__import__("os").path.dirname(__import__("os").path.abspath(__file__))))
-import brain, captura_llamada, config, conversacion_llamada, energia, instalador, llamadas, notificaciones, registro, tools, tools_pc, ui_llamadas, vision, voice  # noqa: E402
+import brain, busqueda_web, captura_llamada, config, conversacion_llamada, energia, instalador, llamadas, notificaciones, registro, tools, tools_pc, ui_llamadas, vision, voice  # noqa: E402
 
 
 def esperar(cond, t=3.0):
@@ -621,6 +621,46 @@ class TestConversacionLlamada(unittest.TestCase):
         self.assertTrue(r["ok"])
         self.assertEqual(dichas, ["¿Quiere dejarle algún mensaje a Martín?"])   # en silencio pregunta por un «mensaje»
         self.assertEqual(avisos, [])                                     # sin conversación: sin aviso
+
+    def test_busca_en_internet_y_responde(self):
+        buscadas = []
+        dichas, resp = [], iter(['{"decir": "Un momento, lo reviso.", "buscar": "precio del dólar hoy"}',
+                                 '{"decir": "Hoy está cerca de cuatro mil pesos.", "recado": "", "terminar": false}',
+                                 '{"decir": "", "terminar": true}'])
+        mensajes_vistos = []
+
+        class Oy:
+            fallo = ""; nivel_max = 0
+            def __init__(s): s.f = [b"a cuanto esta el dolar", b"adios"]
+            def iniciar(s): pass
+            def reanudar(s): pass
+            def pausar(s): pass
+            def cerrar(s): pass
+            def escuchar(s, **kw): return s.f.pop(0) if s.f else None
+
+        def charlar(sis, msgs):
+            mensajes_vistos.append(msgs[-1]["content"])
+            return next(resp)
+        conversacion_llamada.conversar(
+            {"nombre": "Ana"}, dichas.append, lambda: True, lambda q, t: None, lambda *a, **k: (True, ""),
+            oyente=Oy(), charlar=charlar, a_texto=lambda p: p.decode(),
+            buscar=lambda q: buscadas.append(q) or [{"titulo": "Dólar", "texto": "3.950 COP"}])
+        self.assertEqual(buscadas, ["precio del dólar hoy"])
+        self.assertEqual(dichas, ["Un momento, lo reviso.", "Hoy está cerca de cuatro mil pesos."])
+        self.assertIn("RESULTADOS DE BÚSQUEDA", mensajes_vistos[1])
+        self.assertIn("3.950 COP", mensajes_vistos[1])
+
+    def test_el_prompt_da_la_hora_y_dice_que_hay_internet(self):
+        self.assertIn("{ahora}", conversacion_llamada._SISTEMA)
+        self.assertIn("internet", conversacion_llamada._SISTEMA)
+        self.assertNotIn("no tienes acceso a internet", conversacion_llamada._SISTEMA)
+        self.assertRegex(conversacion_llamada._ahora(), r"\d{1,2}:\d{2}")
+
+    def test_busqueda_web_formatea_y_cae_a_wikipedia(self):
+        with mock.patch.object(busqueda_web, "_ddgs", return_value=[]), mock.patch.object(busqueda_web, "_html_ddg", return_value=[]), \
+                mock.patch.object(busqueda_web, "_wikipedia", return_value=[{"titulo": "Bogotá", "texto": "Capital de Colombia"}]):
+            res = busqueda_web.buscar("capital de colombia")
+        self.assertEqual(busqueda_web.formatear(res), "- Bogotá: Capital de Colombia")
 
     def test_sin_recado_avisa_quien_llamo(self):
         r, dichas, avisos, _ = self._conversar([b"cuanto es dos mas dos", b"adios"],
