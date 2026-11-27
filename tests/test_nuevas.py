@@ -3,7 +3,7 @@ import io, json, os, struct, sys, threading, time, types, unittest, wave
 from unittest import mock
 
 sys.path.insert(0, __import__("os").path.dirname(__import__("os").path.dirname(__import__("os").path.abspath(__file__))))
-import brain, config, energia, instalador, llamadas, notificaciones, registro, tools, tools_pc, ui_llamadas, vision, voice  # noqa: E402
+import brain, captura_llamada, config, conversacion_llamada, energia, instalador, llamadas, notificaciones, registro, tools, tools_pc, ui_llamadas, vision, voice  # noqa: E402
 
 
 def esperar(cond, t=3.0):
@@ -552,6 +552,125 @@ class TestLlamadaActivaYVoz(unittest.TestCase):
     def test_cae_a_parlantes_y_lo_dice(self):
         g = llamadas.Gestor(hablar_llamada=lambda t: "parlantes: no encuentro")
         self.assertIn("No salió por el cable", g.probar_voz())
+
+
+class TestConversacionLlamada(unittest.TestCase):
+    def _frase(self, o, fuerte=True, bloques=10):
+        for _ in range(bloques):
+            o._poner(0.1 if fuerte else 0.0, b"\x01\x00" * 1600)
+
+    def test_oyente_detecta_una_frase_y_corta_en_el_silencio(self):
+        o = captura_llamada.Oyente()
+        self._frase(o, True, 8)
+        self._frase(o, False, 12)
+        pcm = o.escuchar(espera_max=5, silencio_fin=1.0)
+        self.assertIsNotNone(pcm)
+        self.assertGreater(len(pcm), 8 * 3200)
+
+    def test_oyente_sin_voz_devuelve_none(self):
+        o = captura_llamada.Oyente()
+        self._frase(o, False, 30)
+        self.assertIsNone(o.escuchar(espera_max=2.0))
+
+    def test_oyente_ignora_un_ruido_corto(self):
+        o = captura_llamada.Oyente()
+        self._frase(o, True, 2)            # menos de 0,3 s: no es una frase
+        self._frase(o, False, 30)
+        self.assertIsNone(o.escuchar(espera_max=2.0))
+
+    def test_analizar_respuesta_json_y_texto_plano(self):
+        r = conversacion_llamada._analizar_respuesta('```json\n{"decir": "Claro", "recado": "Llamar a Ana", "terminar": false}\n```')
+        self.assertEqual((r["decir"], r["recado"], r["terminar"]), ("Claro", "Llamar a Ana", False))
+        r = conversacion_llamada._analizar_respuesta('{"decir": "", "recado": "", "terminar": true}')
+        self.assertTrue(r["terminar"])
+        r = conversacion_llamada._analizar_respuesta("Hola, buenas tardes")
+        self.assertEqual(r["decir"], "Hola, buenas tardes")
+
+    def _conversar(self, frases, respuestas, activo=lambda: True):
+        dichas, avisos, chat = [], [], []
+
+        class Oy:
+            fallo = ""
+            nivel_max = 0
+            def __init__(s): s.frases = list(frases)
+            def iniciar(s): pass
+            def reanudar(s): pass
+            def pausar(s): pass
+            def cerrar(s): pass
+            def escuchar(s, **kw): return s.frases.pop(0) if s.frases else None
+
+        resp = list(respuestas)
+        r = conversacion_llamada.conversar(
+            {"nombre": "Ana"}, dichas.append, activo, lambda q, t: chat.append((q, t)),
+            lambda texto, titulo="", urgente=False: (avisos.append(texto) or (True, "ok")),
+            oyente=Oy(), charlar=lambda sis, msgs: resp.pop(0), a_texto=lambda pcm: pcm.decode())
+        return r, dichas, avisos, chat
+
+    def test_toma_un_recado_lo_avisa_y_se_despide(self):
+        r, dichas, avisos, chat = self._conversar(
+            [b"quiero dejarle un mensaje", b"que me llame manana", b"gracias adios"],
+            ['{"decir": "Claro, dígame.", "recado": "", "terminar": false}',
+             '{"decir": "Anotado: que la llame mañana.", "recado": "Que Ana la llame mañana", "terminar": false}',
+             '{"decir": "", "recado": "", "terminar": true}'])
+        self.assertEqual(r["recados"], ["Que Ana la llame mañana"])
+        self.assertTrue(any("Recado de Ana" in a for a in avisos))     # recado al celular al instante
+        self.assertTrue(any("Resumen" in a or "Llamada de Ana" in a for a in avisos))
+        self.assertEqual(dichas, ["Claro, dígame.", "Anotado: que la llame mañana."])
+
+    def test_dos_silencios_terminan(self):
+        r, dichas, avisos, _ = self._conversar([], [])
+        self.assertTrue(r["ok"])
+        self.assertEqual(len(dichas), 1)                                 # «¿Sigue ahí?» una vez
+        self.assertEqual(avisos, [])                                     # sin conversación: sin resumen
+
+    def test_modelo_caido_no_pierde_lo_que_dijo(self):
+        r, dichas, avisos, _ = self._conversar([b"avise que llego tarde"], [])   # charlar lanza IndexError
+        self.assertEqual(r["recados"], ["avise que llego tarde"])
+
+    def test_se_detiene_si_la_llamada_deja_de_estar_activa(self):
+        estado = {"n": 0}
+
+        def activo():
+            estado["n"] += 1
+            return estado["n"] <= 2
+        r, dichas, _a, _c = self._conversar([b"hola"] * 5, ['{"decir": "Hola", "recado": "", "terminar": false}'] * 5, activo)
+        self.assertLessEqual(len(dichas), 1)
+
+    def test_sin_oido_devuelve_ok_false(self):
+        class Roto:
+            def iniciar(s): raise RuntimeError("sin soundcard")
+        chat = []
+        r = conversacion_llamada.conversar({"nombre": "Ana"}, lambda t: None, lambda: True, lambda q, t: chat.append(t),
+                                           lambda *a, **k: (True, ""), oyente=Roto(), charlar=lambda *a: "", a_texto=lambda p: "")
+        self.assertFalse(r["ok"])
+
+    def test_gestor_conversa_y_luego_cuelga(self):
+        g, ui, reloj, reg = nuevo_gestor()
+        llamado = []
+
+        def conv(info, hablar, activo, escribir, avisar):
+            llamado.append(activo())
+            hablar("respuesta de prueba")
+            return {"ok": True}
+        g._conversar = conv
+        ui.info = ENTRANTE
+        with mock.patch.object(config, "LLAMADA_ESPERA_SEG", 0, create=True), mock.patch.object(config, "LLAMADA_ANUNCIAR", False, create=True), \
+                mock.patch.object(config, "LLAMADA_ACEPTAR_POR_VISION", False, create=True):
+            g.tick()
+            g.tick()
+            self.assertTrue(esperar(lambda: llamado))
+            self.assertTrue(esperar(lambda: g.estado == "jarvis" and g.hasta is not None))
+            self.assertTrue(llamado[0])
+            self.assertEqual(sum(1 for q, t in reg.hablado if q == "llamada" and "Jarvis" in t), 1)   # un solo saludo
+            reloj.avanzar(1)
+            ui.info = ACTIVA
+            g.tick()
+        self.assertTrue(esperar(lambda: "colgar" in ui.llamadas))
+
+    def test_comando_prueba_de_oido(self):
+        g = llamadas.Gestor()
+        with mock.patch.object(llamadas, "probar_escucha_llamada", return_value="Oí: «hola»"):
+            self.assertEqual(g.manejar_texto("jarvis prueba el oído de la llamada"), "Oí: «hola»")
 
 
 class TestUIALimites(unittest.TestCase):

@@ -114,6 +114,14 @@ LLAMADA_GANANCIA = 2.0            # sube el volumen de la voz de Jarvis hacia el
 LLAMADA_RETRASO_SALUDO = 2.5       # segundos tras contestar antes de hablar (el audio de WhatsApp tarda en establecerse)
 LLAMADA_SALUDO_REPETIR = 2         # veces que dice el saludo (por si la primera se pierde al abrirse el audio)
 LLAMADA_COLGAR_POR_VISION = True   # si no halla el botón de colgar, lo busca en la pantalla
+# Conversación: Jarvis oye a quien llama (captura lo que suena por tus parlantes), le responde y anota recados que te manda al celular.
+LLAMADA_CONVERSAR = True
+LLAMADA_AUDIO_ENTRADA = ""            # parte del nombre de la salida que usa WhatsApp para sonar (vacío = la predeterminada de Windows)
+LLAMADA_CONVERSACION_MAX_SEG = 240    # tiempo máximo de la conversación antes de despedirse y colgar
+LLAMADA_CONVERSACION_TURNOS = 12      # máximo de intercambios
+LLAMADA_ESPERA_VOZ = 10               # segundos esperando a que quien llama hable (tras 2 silencios se despide)
+LLAMADA_UMBRAL_VOZ = 0.01             # volumen mínimo para considerar que alguien habla (sube si capta ruido, baja si no te oye)
+LLAMADA_RESUMEN_CELULAR = True        # al terminar, manda al celular un resumen de la llamada
 LLAMADA_BTN_RECHAZAR = r"\b(rechazar|decline|reject)\b"
 LLAMADA_BTN_COLGAR = r"\b(finalizar|terminar|colgar|end call|hang up|leave call|salir de la llamada)\b"
 

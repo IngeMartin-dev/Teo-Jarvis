@@ -32,6 +32,7 @@ _RE_ACEPTAR = re.compile(r"\b(contesta(la|r)?|cont[eé]stala|responde(la)?|resp[
                          r"atiende(la)?|at[ié]ndela|descuelga|toma\s+la\s+llamada)\b", re.I)
 _RE_PRUEBA_VOZ = re.compile(r"\b(prueba|probar|probemos|testea|test)\b.*\bvoz\b.*\b(llamada|cable)\b|"
                             r"\b(prueba|probar)\b.*\b(cable|audio)\b.*\bllamada\b", re.I)
+_RE_PRUEBA_OIDO = re.compile(r"\b(prueba|probar|probemos|testea|test)\b.*\b(o[ií]do|escucha|o[ií]r)\b.*\b(llamada)\b", re.I)
 _RE_DIAGNOSTICO = re.compile(r"\bdiagn[oó]stic\w*\b.*\bllamada\b|\bllamada\b.*\bdiagn[oó]stic\w*\b", re.I)
 _COLCHON_VOZ = 3.0   # segundos extra cuando el usuario avisa de la llamada (lo que tarda Jarvis en responder en voz alta)
 _PERDIDAS_MAX = 3    # lecturas seguidas sin ver la ventana antes de dar la llamada por terminada
@@ -54,8 +55,9 @@ class Gestor:
     Solo «jarvis» y «usuario» silencian la voz de Jarvis, y solo después de comprobar que la llamada se contestó."""
 
     def __init__(self, ui=None, hablar=None, hablar_llamada=None, avisar=None, escribir=None,
-                 reloj=time.time, dormir=time.sleep, en_llamada=None):
+                 reloj=time.time, dormir=time.sleep, en_llamada=None, conversar=None):
         self._ui = ui
+        self._conversar = conversar   # conversar(info, hablar, activo, escribir, avisar) -> dict; None = sin conversación
         self._hablar = hablar or (lambda t: None)
         self._hablar_llamada = hablar_llamada or (lambda t: None)
         self._avisar = avisar or notificaciones.avisar_celular
@@ -280,8 +282,11 @@ class Gestor:
                         "Jarvis contestó y dijo que esperen o dejen un mensaje.")
         self.dormir(_cfg("LLAMADA_RETRASO_SALUDO", 2.5))   # deja que se establezca el audio antes de hablar
         saludo = _cfg("LLAMADA_SALUDO", "Hola, soy Jarvis.").format(usuario=self._usuario())
+        conversa = self._conversar is not None and _cfg("LLAMADA_CONVERSAR", True)
+        por_cable = True
         try:
-            for n in range(max(1, int(_cfg("LLAMADA_SALUDO_REPETIR", 2)))):
+            repeticiones = 1 if conversa else max(1, int(_cfg("LLAMADA_SALUDO_REPETIR", 2)))
+            for n in range(repeticiones):
                 if n:
                     self.dormir(1.5)
                     if self.estado != "jarvis" or self._colgar_pedido:
@@ -289,15 +294,45 @@ class Gestor:
                 resultado = self._hablar_llamada(saludo)
                 registro.escribir(f"saludo {n + 1}: {resultado}")
                 if isinstance(resultado, str) and resultado.startswith("parlantes"):
+                    por_cable = False
                     self._escribir("Jarvis", "El saludo salió por los parlantes, no por el cable: " + resultado)
                     break   # repetir por los parlantes solo molestaría
         except Exception as e:
             registro.escribir(f"no pude decir el saludo: {type(e).__name__}: {e}")
-        finally:
+        conversa = conversa and por_cable
+        with self._lock:
+            self._hablando = False
+            if self.estado == "jarvis":
+                self.hasta = self.reloj() + (0 if self._colgar_pedido else
+                                             (_cfg("LLAMADA_CONVERSACION_MAX_SEG", 240) if conversa else _cfg("LLAMADA_PERMANENCIA_SEG", 45)))
+        if conversa and not self._colgar_pedido:
+            self._conversar_con_llamante(info)
+
+    def _activa_para_jarvis(self) -> bool:
+        """La llamada sigue siendo de Jarvis: no colgaron, no la tomaste tú y no se agotó el tiempo máximo."""
+        if self.estado != "jarvis" or self._colgar_pedido:
+            return False
+        return not (self.hasta is not None and self.reloj() >= self.hasta)
+
+    def _conversar_con_llamante(self, info):
+        def hablar(texto):
             with self._lock:
-                self._hablando = False
-                if self.estado == "jarvis":
-                    self.hasta = self.reloj() + (0 if self._colgar_pedido else _cfg("LLAMADA_PERMANENCIA_SEG", 45))
+                self._hablando = True      # mientras habla no se cuelga ni se da por terminada la llamada
+            try:
+                return self._hablar_llamada(texto)
+            finally:
+                with self._lock:
+                    self._hablando = False
+        try:
+            r = self._conversar(info, hablar, self._activa_para_jarvis, self._escribir, self._avisar)
+        except Exception as e:
+            registro.escribir(f"error en la conversación: {type(e).__name__}: {e}")
+            r = {"ok": False}
+        with self._lock:
+            if self.estado == "jarvis" and not self._colgar_pedido:
+                # Fin de la conversación (despedida, silencio, tiempo agotado): se despide y cuelga. Si ni siquiera pudo
+                # oír a quien llama, se queda el tiempo de siempre antes de despedirse.
+                self.hasta = self.reloj() if r.get("ok") else self.reloj() + _cfg("LLAMADA_PERMANENCIA_SEG", 45)
 
     def _colgar_por_vision(self) -> bool:
         """La ventana de llamada en curso no expone el botón de colgar: se pone el mouse sobre ella (los controles de
@@ -481,6 +516,8 @@ class Gestor:
         habla_llamada = bool(_RE_LLAMADA.search(t))
         if _RE_PRUEBA_VOZ.search(t):
             return self.probar_voz()
+        if _RE_PRUEBA_OIDO.search(t):
+            return probar_escucha_llamada()
         if _RE_DIAGNOSTICO.search(t):
             return self.diagnosticar()
         if est in ("esperando", "aceptando", "jarvis", "usuario") or habla_llamada:
@@ -553,7 +590,7 @@ def obtener(escribir=None) -> Gestor:
     global _gestor
     if _gestor is None:
         _gestor = Gestor(hablar=_hablar_normal, hablar_llamada=_hablar_en_llamada,
-                         escribir=escribir, en_llamada=_marcar_en_llamada)
+                         escribir=escribir, en_llamada=_marcar_en_llamada, conversar=_conversar_llamada)
     elif escribir is not None:
         _gestor._escribir = escribir
     return _gestor
@@ -581,6 +618,17 @@ def rechazar_llamada() -> str:
     return obtener().rechazar_usuario()
 
 
+def _conversar_llamada(info, hablar, activo, escribir, avisar):
+    import conversacion_llamada
+    return conversacion_llamada.conversar(info, hablar, activo, escribir, avisar)
+
+
+def probar_escucha_llamada() -> str:
+    """Prueba cómo oye Jarvis a quien llama (escucha unos segundos lo que suena por tus parlantes). No necesita llamada."""
+    import conversacion_llamada
+    return conversacion_llamada.probar_escucha()
+
+
 def probar_voz_llamada() -> str:
     """Prueba el audio que oiría quien llama (habla por el cable de audio virtual). No necesita una llamada."""
     return obtener().probar_voz()
@@ -606,6 +654,7 @@ SPEC = [
     _t("rechazar_llamada", "Rechaza la llamada entrante de WhatsApp que está sonando", {}, []),
     _t("diagnosticar_llamada", "Muestra qué ventanas y botones de WhatsApp ve Jarvis (para ajustar la detección de llamadas; úsalo con una llamada sonando)", {}, []),
     _t("probar_voz_llamada", "Prueba la voz de Jarvis hacia el cable de audio de las llamadas de WhatsApp", {}, []),
+    _t("probar_escucha_llamada", "Prueba cómo oye Jarvis a quien llama en una llamada de WhatsApp (escucha unos segundos por los parlantes)", {}, []),
     _t("probar_aviso_celular", "Envía un aviso de prueba al celular del usuario", {}, []),
 ]
 REGISTRY = {f["function"]["name"]: globals()[f["function"]["name"]] for f in SPEC}

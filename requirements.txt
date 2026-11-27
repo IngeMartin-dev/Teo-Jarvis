@@ -15,3 +15,5 @@ pywinauto
 pyperclip
 sounddevice
 pycaw; sys_platform == 'win32'
+soundcard
+numpy
